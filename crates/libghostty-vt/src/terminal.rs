@@ -245,16 +245,6 @@ pub struct Options {
     pub max_scrollback: usize,
 }
 
-impl From<Options> for ffi::TerminalOptions {
-    fn from(value: Options) -> Self {
-        Self {
-            cols: value.cols,
-            rows: value.rows,
-            max_scrollback: value.max_scrollback,
-        }
-    }
-}
-
 /// Default visual style used when the cursor style is reset.
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, int_enum::IntEnum)]
@@ -291,12 +281,20 @@ impl<'alloc: 'cb, 'cb> Terminal<'alloc, 'cb> {
 
     unsafe fn new_inner(alloc: *const ffi::Allocator, opts: Options) -> Result<Self> {
         let mut raw: ffi::Terminal = std::ptr::null_mut();
-        let result = unsafe { ffi::ghostty_terminal_new(alloc, &raw mut raw, opts.into()) };
+        let result =
+            unsafe { ffi::ghostty_terminal_new(alloc, &raw mut raw, opts.cols, opts.rows) };
         from_result(result)?;
-        Ok(Self {
+        let terminal = Self {
             inner: Object::new(raw)?,
             vtable: Box::new(VTable::default()),
-        })
+        };
+        // Scrollback is no longer part of terminal creation; it is a post-init
+        // option. Applied here so `Options` keeps describing one whole terminal.
+        terminal.set(
+            ffi::TerminalOption::SCROLLBACK_MAX_LINES,
+            &opts.max_scrollback,
+        )?;
+        Ok(terminal)
     }
 
     /// Write VT-encoded data to the terminal for processing.
@@ -445,19 +443,29 @@ impl<'alloc: 'cb, 'cb> Terminal<'alloc, 'cb> {
 
     /// Get the current value of a terminal mode.
     pub fn mode(&self, mode: Mode) -> Result<bool> {
-        let mut value = false;
+        // The caller initializes `mode`; the call fills in `value`.
+        let mut config = ffi::TerminalModeConfig {
+            mode: mode.into(),
+            value: false,
+        };
         let result = unsafe {
-            ffi::ghostty_terminal_mode_get(self.inner.as_raw(), mode.into(), &raw mut value)
+            ffi::ghostty_terminal_get(
+                self.inner.as_raw(),
+                ffi::TerminalData::MODE,
+                std::ptr::from_mut(&mut config).cast(),
+            )
         };
         from_result(result)?;
-        Ok(value)
+        Ok(config.value)
     }
 
     /// Set the value of a terminal mode.
     pub fn set_mode(&mut self, mode: Mode, value: bool) -> Result<&mut Self> {
-        let result =
-            unsafe { ffi::ghostty_terminal_mode_set(self.inner.as_raw(), mode.into(), value) };
-        from_result(result)?;
+        let config = ffi::TerminalModeConfig {
+            mode: mode.into(),
+            value,
+        };
+        self.set(ffi::TerminalOption::MODE, &config)?;
         Ok(self)
     }
 
