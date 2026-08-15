@@ -10,6 +10,13 @@ name: Bindings drift
 # So: regenerate against the ghostty the pin actually builds, and fail if the
 # result differs from what is committed. Bumping GHOSTTY_COMMIT without
 # regenerating is the mistake this job exists to catch.
+#
+# It runs on macOS because the generator is host-aware — it adds
+# `-I/usr/include` under `cfg!(target_os = "linux")` — so the same pin yields
+# different output per host. The committed bindings carry `ENUM_MAX_VALUE`,
+# which a Linux run drops, and upstream's own bindings carry it too. Generating
+# where they were generated is what makes a diff mean drift instead of "wrong
+# runner"; a check that cries wolf is one people learn to ignore.
 
 on:
   push:
@@ -24,12 +31,12 @@ concurrency:
 
 env:
   ZIG_VERSION: "0.16.0"
-  ZIG_SHA256: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+  ZIG_SHA256: "b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489"
 
 jobs:
   drift:
     name: Regenerated bindings match the tree
-    runs-on: ubuntu-24.04
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
@@ -44,9 +51,20 @@ jobs:
             ~/.cargo/git
           key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install libclang
-        # bindgen needs it; the tool is what regenerates the bindings.
-        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - name: Select the Command Line Tools SDK
+        # Recent Xcode SDKs advertise libSystem as arm64e only, which Zig cannot
+        # link against — the failure is a wall of `undefined symbol: _malloc`
+        # from the build runner. The CLT SDK still advertises arm64. Asserted
+        # rather than assumed so an image change fails with one readable line.
+        run: |
+          set -euo pipefail
+          clt=/Library/Developer/CommandLineTools
+          if [ ! -d "$clt/SDKs" ]; then
+            echo "::error::$clt/SDKs is missing on this runner image; Zig cannot link without it"
+            exit 1
+          fi
+          echo "DEVELOPER_DIR=$clt" >> "$GITHUB_ENV"
+          echo "LIBCLANG_PATH=$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib" >> "$GITHUB_ENV"
 
       - name: Install Zig ${{ env.ZIG_VERSION }}
         # The pinned ghostty declares minimum_zig_version 0.16.0, and
@@ -54,11 +72,11 @@ jobs:
         # so the toolchain has to be on PATH.
         run: |
           set -euo pipefail
-          url="https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          url="https://ziglang.org/download/${ZIG_VERSION}/zig-aarch64-macos-${ZIG_VERSION}.tar.xz"
           curl -fsSL -o zig.tar.xz "$url"
-          echo "${ZIG_SHA256}  zig.tar.xz" | sha256sum -c -
+          echo "${ZIG_SHA256}  zig.tar.xz" | shasum -a 256 -c -
           tar xf zig.tar.xz
-          echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+          echo "$PWD/zig-aarch64-macos-${ZIG_VERSION}" >> "$GITHUB_PATH"
 
       - name: Zig version
         run: zig version
