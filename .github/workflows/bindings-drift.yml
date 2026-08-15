@@ -1,0 +1,109 @@
+name: Bindings drift
+
+# `libghostty-vt-sys` checks its generated bindings into the tree, so the pin in
+# build.rs and `src/bindings.rs` are two facts that can disagree. When they do,
+# nothing fails to build — the struct layouts simply stop matching the headers
+# and the library corrupts memory at runtime. Downstream that surfaced as
+# unrelated HashMaps spinning forever inside hashbrown's probe loop, in tests
+# that never touched a terminal.
+#
+# So: regenerate against the ghostty the pin actually builds, and fail if the
+# result differs from what is committed. Bumping GHOSTTY_COMMIT without
+# regenerating is the mistake this job exists to catch.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ZIG_VERSION: "0.16.0"
+  ZIG_SHA256: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+
+jobs:
+  drift:
+    name: Regenerated bindings match the tree
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          # Deliberately not caching `target/`: it holds a full ghostty clone
+          # plus a Zig archive, and a stale one is exactly what this job is
+          # meant to detect.
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install libclang
+        # bindgen needs it; the tool is what regenerates the bindings.
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+
+      - name: Install Zig ${{ env.ZIG_VERSION }}
+        # The pinned ghostty declares minimum_zig_version 0.16.0, and
+        # `libghostty-vt-sys` invokes `zig` by name — it honours no ZIG override,
+        # so the toolchain has to be on PATH.
+        run: |
+          set -euo pipefail
+          url="https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          curl -fsSL -o zig.tar.xz "$url"
+          echo "${ZIG_SHA256}  zig.tar.xz" | sha256sum -c -
+          tar xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+
+      - name: Zig version
+        run: zig version
+
+      - name: Build the -sys crate
+        # Fetches the pinned ghostty and produces the headers the generator
+        # reads out of target/debug/build/libghostty-vt-sys-*/out.
+        run: cargo build -p libghostty-vt-sys
+
+      - name: Point the generator at the pin's own headers
+        # Left to itself the generator walks target/debug/build for a
+        # `libghostty-vt-sys-*` output and takes what it finds first. With more
+        # than one build hash present that can be a *different* ghostty, so it
+        # regenerates identical bindings and the drift check passes while blind.
+        # A fresh runner only has one, but a guard that depends on that is the
+        # same implicit assumption this job exists to remove.
+        run: |
+          set -euo pipefail
+          pin=$(grep -oE '[0-9a-f]{40}' crates/libghostty-vt-sys/build.rs | head -1)
+          echo "pin: $pin"
+          include=""
+          for out in target/debug/build/libghostty-vt-sys-*/out; do
+            [ -f "$out/ghostty-src/.ghostty-commit" ] || continue
+            [ "$(cat "$out/ghostty-src/.ghostty-commit")" = "$pin" ] || continue
+            [ -d "$out/ghostty-install/include" ] || continue
+            include="$out/ghostty-install/include"
+          done
+          if [ -z "$include" ]; then
+            echo "::error::no build output found for pinned ghostty $pin"
+            exit 1
+          fi
+          echo "headers: $include"
+          echo "GHOSTTY_INCLUDE_DIR=$PWD/$include" >> "$GITHUB_ENV"
+
+      - name: Regenerate bindings
+        run: cargo run -p libghostty-vt-sys --features bindgen-tool --bin gen-bindings
+
+      - name: Fail if they differ from what is committed
+        run: |
+          if ! git diff --exit-code -- crates/libghostty-vt-sys/src/bindings.rs; then
+            echo "::error::src/bindings.rs does not match bindings regenerated against the pinned ghostty."
+            echo "::error::Run: cargo build -p libghostty-vt-sys && cargo run -p libghostty-vt-sys --features bindgen-tool --bin gen-bindings"
+            echo "::error::Commit the result together with the pin change — never one without the other."
+            exit 1
+          fi
+
+      - name: Build and test the safe wrapper
+        run: cargo test

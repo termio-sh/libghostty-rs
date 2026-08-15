@@ -1,10 +1,15 @@
 name: CI
 
+# Manual-dispatch only in this fork. Every job here runs on Namespace runners
+# (`namespace-profile-*`) with Nix and the Ghostty Cachix cache, none of which
+# termio-sh has — so on push it could only ever fail, and a permanently red
+# check is worse than no check because people stop reading it.
+#
+# Deliberately a trigger change and nothing else, so this file rebases cleanly
+# onto upstream. `bindings-drift.yml` is the check that actually guards this
+# fork, and `windows-ci.yml` still runs on stock runners.
 on:
-  push:
-    branches: [master]
-  pull_request:
-    branches: [master]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
