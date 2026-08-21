@@ -1916,7 +1916,7 @@ pub mod KittyGraphicsImageData {
     pub const FORMAT: Type = 5;
     #[doc = " Compression of the image. Always\n GHOSTTY_KITTY_IMAGE_COMPRESSION_NONE; compressed payloads are\n inflated before storage.\n\n Output type: GhosttyKittyImageCompression *"]
     pub const COMPRESSION: Type = 6;
-    #[doc = " Borrowed pointer to the raw pixel data. Valid as long as the\n underlying terminal is not mutated. Returns GHOSTTY_NO_VALUE when\n the image metadata is resident but its pixel payload is pending.\n\n The data is always fully decoded, uncompressed pixels in the\n format reported by GHOSTTY_KITTY_IMAGE_DATA_FORMAT: zlib payloads\n are inflated and PNG payloads are decoded to RGBA at transmission\n time, before the image is stored. Consumers can upload this\n directly to the GPU without any decode step.\n\n Output type: const uint8_t **"]
+    #[doc = " Borrowed pointer to the raw pixel data. Valid as long as the\n underlying terminal is not mutated. Returns GHOSTTY_NO_VALUE when\n the image metadata is resident but its pixel payload is pending.\n\n The data is always fully decoded, uncompressed pixels in the\n format reported by GHOSTTY_KITTY_IMAGE_DATA_FORMAT: zlib payloads\n are inflated and PNG payloads are decoded to RGBA at transmission\n time, before the image is stored. Consumers can upload this\n directly to the GPU without any decode step.\n\n For an animated image (Kitty graphics animation, actions a=f/a=a)\n this is the pixel data of the current animation frame. The\n image's GHOSTTY_KITTY_IMAGE_DATA_GENERATION changes whenever the\n current frame changes, so generation-keyed caches remain\n coherent.\n\n Output type: const uint8_t **"]
     pub const DATA_PTR: Type = 7;
     #[doc = " Length of the raw pixel data in bytes. Always equal to\n width * height * bytes-per-pixel for the reported format. For a\n pending image, this is the expected length reserved against the\n storage limit even though DATA_PTR is not available yet.\n\n Output type: size_t *"]
     pub const DATA_LEN: Type = 8;
@@ -2581,7 +2581,7 @@ pub type TerminalDeviceAttributesFn = ::std::option::Option<
 pub type TerminalEnquiryFn = ::std::option::Option<
     unsafe extern "C" fn(terminal: Terminal, userdata: *mut ::std::os::raw::c_void) -> String,
 >;
-#[doc = " Callback function type for size queries (XTWINOPS).\n\n Called in response to XTWINOPS size queries (CSI 14/16/18 t).\n Return true and fill *out_size with the current terminal geometry,\n or return false to silently ignore the query.\n\n"]
+#[doc = " Callback function type for terminal size reports.\n\n Called in response to XTWINOPS size queries (CSI 14/16/18 t) and when VT\n input enables in-band size reports (mode 2048).\n Return true and fill *out_size with the current terminal geometry,\n or return false to suppress the report.\n\n mode 2048 report\n"]
 pub type TerminalSizeFn = ::std::option::Option<
     unsafe extern "C" fn(
         terminal: Terminal,
@@ -2597,7 +2597,7 @@ pub type TerminalTitleChangedFn = ::std::option::Option<
 pub type TerminalPwdChangedFn = ::std::option::Option<
     unsafe extern "C" fn(terminal: Terminal, userdata: *mut ::std::os::raw::c_void),
 >;
-#[doc = " Callback function type for write_pty.\n\n Called when the terminal needs to write data back to the pty, for\n example in response to a device status report or mode query. The\n data is only valid for the duration of the call; callers must copy\n it if it needs to persist.\n\n"]
+#[doc = " Callback function type for write_pty.\n\n Called when the terminal needs to write data back to the pty, for\n example in response to a device status report, mode query, or VT-driven\n mode 2048 enable. The data is only valid for the duration of the call;\n callers must copy it if it needs to persist.\n\n"]
 pub type TerminalWritePtyFn = ::std::option::Option<
     unsafe extern "C" fn(
         terminal: Terminal,
@@ -2633,7 +2633,7 @@ pub mod TerminalOption {
     pub type Type = ::std::os::raw::c_int;
     #[doc = " Opaque userdata pointer passed to all callbacks.\n\n Input type: void*"]
     pub const USERDATA: Type = 0;
-    #[doc = " Callback invoked when the terminal needs to write data back\n to the pty (e.g. in response to a DECRQM query or device\n status report). Set to NULL to ignore such sequences.\n\n Input type: GhosttyTerminalWritePtyFn"]
+    #[doc = " Callback invoked when the terminal needs to write data back\n to the pty (e.g. in response to a DECRQM query, device status\n report, or VT-driven mode 2048 enable). Set to NULL to ignore such\n sequences.\n\n Input type: GhosttyTerminalWritePtyFn"]
     pub const WRITE_PTY: Type = 1;
     #[doc = " Callback invoked when the terminal receives a BEL character\n (0x07). Set to NULL to ignore bell events.\n\n Input type: GhosttyTerminalBellFn"]
     pub const BELL: Type = 2;
@@ -4483,9 +4483,11 @@ unsafe extern "C" {
 pub mod SnapshotDecoderOption {
     #[doc = " Configurable snapshot decoder options.\n\n Options may only be changed before decoding starts. Calling\n ghostty_snapshot_decoder_set() after ghostty_snapshot_decoder_ready() or\n ghostty_snapshot_decoder_decode() returns GHOSTTY_INVALID_VALUE."]
     pub type Type = ::std::os::raw::c_int;
-    #[doc = " Largest non-ground continuation the decoder will accept.\n\n A value of zero accepts only snapshots whose VT parser is in the ground\n state. The decoder default matches the largest built-in APC protocol\n buffer limit, currently 65 MiB.\n\n This is an input validation limit only. It does not configure continuation\n tracking on a terminal returned by the decoder.\n\n Input type: size_t *"]
+    #[doc = " Largest non-ground continuation the decoder will accept.\n\n A value of zero accepts only snapshots whose VT parser is in the ground\n state. The decoder default matches the largest built-in APC protocol\n buffer limit, currently 65 MiB.\n\n This is primarily an input validation limit. When\n GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION is true, the same value\n also becomes the continuation tracking limit on the returned terminal.\n\n Input type: size_t *"]
     pub const GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES: Type = 0;
-    #[doc = " Largest non-ground continuation the decoder will accept.\n\n A value of zero accepts only snapshots whose VT parser is in the ground\n state. The decoder default matches the largest built-in APC protocol\n buffer limit, currently 65 MiB.\n\n This is an input validation limit only. It does not configure continuation\n tracking on a terminal returned by the decoder.\n\n Input type: size_t *"]
+    #[doc = " Retain the decoded continuation on the returned terminal.\n\n When true, terminals returned by ghostty_snapshot_decoder_ready() and\n ghostty_snapshot_decoder_decode() use\n GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES as their continuation\n tracking limit. The existing ghostty_terminal_continuation_* APIs can then\n export the exact unfinished VT or UTF-8 input restored from the snapshot.\n\n This is false by default. A maximum continuation size of zero leaves\n tracking disabled. With a nonzero maximum, tracking remains enabled even\n when the decoded continuation is empty. Exporting an empty continuation\n does not disable it. Callers that do not need ongoing tracking must still\n set GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to zero after export and\n before writing post-snapshot input.\n\n Input type: bool *"]
+    pub const GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION: Type = 1;
+    #[doc = " Retain the decoded continuation on the returned terminal.\n\n When true, terminals returned by ghostty_snapshot_decoder_ready() and\n ghostty_snapshot_decoder_decode() use\n GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES as their continuation\n tracking limit. The existing ghostty_terminal_continuation_* APIs can then\n export the exact unfinished VT or UTF-8 input restored from the snapshot.\n\n This is false by default. A maximum continuation size of zero leaves\n tracking disabled. With a nonzero maximum, tracking remains enabled even\n when the decoded continuation is empty. Exporting an empty continuation\n does not disable it. Callers that do not need ongoing tracking must still\n set GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to zero after export and\n before writing post-snapshot input.\n\n Input type: bool *"]
     pub const GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_VALUE: Type = 2147483647;
 }
 pub mod SnapshotDecoderData {
@@ -4507,7 +4509,9 @@ pub mod SnapshotDecoderData {
     pub const PROGRESS_ROWS: Type = 6;
     #[doc = " Page records remaining in the same screen's HISTORY sequence.\n\n This is not a count of all pages remaining in the snapshot.\n\n Output type: uint32_t *"]
     pub const PROGRESS_REMAINING: Type = 7;
-    #[doc = " Page records remaining in the same screen's HISTORY sequence.\n\n This is not a count of all pages remaining in the snapshot.\n\n Output type: uint32_t *"]
+    #[doc = " Whether decoded continuation tracking is retained on returned terminals.\n\n This value is available in every non-failed decoder state.\n\n Output type: bool *"]
+    pub const RETAIN_CONTINUATION: Type = 8;
+    #[doc = " Whether decoded continuation tracking is retained on returned terminals.\n\n This value is available in every non-failed decoder state.\n\n Output type: bool *"]
     pub const MAX_VALUE: Type = 2147483647;
 }
 unsafe extern "C" {
@@ -4562,7 +4566,7 @@ unsafe extern "C" {
     ) -> Result::Type;
 }
 unsafe extern "C" {
-    #[doc = " Decode and validate the renderable snapshot prefix through READY.\n\n On success, terminal receives a caller-owned terminal with its persistent\n VT stream already restored from the snapshot continuation. The terminal is\n immediately usable for rendering and live input. Older scrollback remains\n to be restored with ghostty_snapshot_decoder_next().\n\n The restored parser state may be unfinished, but terminal continuation\n tracking is disabled; GHOSTTY_TERMINAL_DATA_CONTINUATION_MAX_BYTES returns\n zero. The decoder's continuation option is an input limit, not terminal\n runtime policy.\n\n The caller must keep the returned terminal alive until FINISH validates or\n the decoder is freed. The decoder borrows this terminal handle while it\n restores history; ghostty_snapshot_decoder_next() uses it automatically.\n\n This operation may only be called once and only before decoding starts.\n terminal is set to NULL on every error. A decoding, I/O, or allocation\n error after input consumption begins poisons the decoder, after which it\n must be freed. An invalid argument or lifecycle error detected before the\n operation consumes input does not poison it.\n\n"]
+    #[doc = " Decode and validate the renderable snapshot prefix through READY.\n\n On success, terminal receives a caller-owned terminal with its persistent\n VT stream already restored from the snapshot continuation. The terminal is\n immediately usable for rendering and live input. Older scrollback remains\n to be restored with ghostty_snapshot_decoder_next().\n\n The restored parser state may be unfinished. By default, terminal\n continuation tracking is disabled and\n GHOSTTY_TERMINAL_DATA_CONTINUATION_MAX_BYTES returns zero. When\n GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION is true, the decoder's\n maximum continuation size is applied to the terminal, and the terminal\n continuation APIs export the exact current continuation when that limit is\n nonzero. Tracking remains enabled even if the exported continuation is\n empty. Callers that do not need ongoing tracking must set\n GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to zero after export and before\n writing any post-snapshot bytes, because later input may change it.\n\n The caller must keep the returned terminal alive until FINISH validates or\n the decoder is freed. The decoder borrows this terminal handle while it\n restores history; ghostty_snapshot_decoder_next() uses it automatically.\n\n This operation may only be called once and only before decoding starts.\n terminal is set to NULL on every error. A decoding, I/O, or allocation\n error after input consumption begins poisons the decoder, after which it\n must be freed. An invalid argument or lifecycle error detected before the\n operation consumes input does not poison it.\n\n"]
     pub fn ghostty_snapshot_decoder_ready(
         decoder: SnapshotDecoder,
         terminal: *mut Terminal,
@@ -4573,7 +4577,7 @@ unsafe extern "C" {
     pub fn ghostty_snapshot_decoder_next(decoder: SnapshotDecoder) -> Result::Type;
 }
 unsafe extern "C" {
-    #[doc = " Decode and validate one complete snapshot.\n\n This is the one-shot form of READY followed by all history pages through\n FINISH. It may only be called before decoding starts. Bytes following FINISH\n are left unread. On success terminal receives a caller-owned terminal with\n its persistent VT stream restored. Continuation tracking on the returned\n terminal is disabled and GHOSTTY_TERMINAL_DATA_CONTINUATION_MAX_BYTES\n returns zero. terminal is set to NULL on every error.\n A decoding, I/O, or allocation error after input consumption begins poisons\n the decoder, after which it must be freed. An invalid argument or\n lifecycle error detected before the operation consumes input does not\n poison it.\n\n"]
+    #[doc = " Decode and validate one complete snapshot.\n\n This is the one-shot form of READY followed by all history pages through\n FINISH. It may only be called before decoding starts. Bytes following FINISH\n are left unread. On success terminal receives a caller-owned terminal with\n its persistent VT stream restored. Continuation tracking on the returned\n terminal is disabled by default. When\n GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION is true, the decoder's\n maximum continuation size is applied to the terminal, and the terminal\n continuation APIs export the exact current continuation when that limit is\n nonzero. Tracking remains enabled even if the exported continuation is\n empty. Callers that do not need ongoing tracking must set\n GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to zero after export and before\n writing any post-snapshot bytes, because later input may change it.\n terminal is set to NULL on every error.\n A decoding, I/O, or allocation error after input consumption begins poisons\n the decoder, after which it must be freed. An invalid argument or\n lifecycle error detected before the operation consumes input does not\n poison it.\n\n"]
     pub fn ghostty_snapshot_decoder_decode(
         decoder: SnapshotDecoder,
         terminal: *mut Terminal,
