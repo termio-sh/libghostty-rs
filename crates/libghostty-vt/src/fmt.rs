@@ -258,7 +258,7 @@ impl Drop for Formatter<'_, '_, '_> {
 }
 
 /// Output format.
-#[repr(i32)]
+#[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, int_enum::IntEnum)]
 pub enum Format {
     /// Plain text (no escape sequences).

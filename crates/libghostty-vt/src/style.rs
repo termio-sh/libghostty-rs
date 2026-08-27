@@ -115,7 +115,7 @@ impl PaletteIndex {
 }
 
 /// Underline style types.
-#[repr(i32)]
+#[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, int_enum::IntEnum)]
 #[non_exhaustive]
 #[expect(missing_docs, reason = "self-explanatory")]
