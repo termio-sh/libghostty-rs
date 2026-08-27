@@ -147,7 +147,14 @@ impl TryFrom<ffi::Style> for Style {
             invisible: value.invisible,
             strikethrough: value.strikethrough,
             overline: value.overline,
-            underline: Underline::try_from(value.underline).map_err(|_| Error::InvalidValue)?,
+            // ffi::Style carries underline as a plain c_int while the SGR
+            // attribute union types the same values as SgrUnderline, which
+            // generates as c_uint. Convert rather than cast so a negative
+            // value is rejected instead of wrapping into a valid variant.
+            underline: u32::try_from(value.underline)
+                .ok()
+                .and_then(|v| Underline::try_from(v).ok())
+                .ok_or(Error::InvalidValue)?,
         })
     }
 }
@@ -167,7 +174,9 @@ impl From<Style> for ffi::Style {
             invisible: value.invisible,
             strikethrough: value.strikethrough,
             overline: value.overline,
-            underline: i32::from(value.underline),
+            // Same asymmetry in the other direction. Every SgrUnderline value
+            // is small enough to fit both widths, so this cannot lose one.
+            underline: u32::from(value.underline) as i32,
         }
     }
 }
