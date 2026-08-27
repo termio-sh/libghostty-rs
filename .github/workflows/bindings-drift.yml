@@ -114,6 +114,19 @@ jobs:
       - name: Regenerate bindings
         run: cargo run -p libghostty-vt-sys --features bindgen-tool --bin gen-bindings
 
+      - name: Upload the regenerated bindings
+        # The generator needs Zig and a full ghostty build, which not every
+        # machine can run — a Tahoe host deadlocks partway through. Publishing
+        # the result makes this job the way to obtain bindings for a new pin,
+        # not just the way to be told they are stale. Uploaded even when the
+        # diff check below fails, because that is exactly when they are wanted.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings
+          path: crates/libghostty-vt-sys/src/bindings.rs
+          if-no-files-found: error
+
       - name: Fail if they differ from what is committed
         run: |
           if ! git diff --exit-code -- crates/libghostty-vt-sys/src/bindings.rs; then
