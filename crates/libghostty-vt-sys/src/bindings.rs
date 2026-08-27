@@ -96,7 +96,9 @@ pub mod Result {
     pub const IO_ERROR: Type = -5;
     #[doc = " Operation failed because encoded input exceeded a configured limit"]
     pub const LIMIT_EXCEEDED: Type = -6;
-    #[doc = " Operation failed because encoded input exceeded a configured limit"]
+    #[doc = " Operation was rejected by a safety check (e.g. pasted text that could\n inject commands). Nothing was done. Confirm with the user and retry\n with the operation's allow flag set."]
+    pub const REJECTED: Type = -7;
+    #[doc = " Operation was rejected by a safety check (e.g. pasted text that could\n inject commands). Nothing was done. Confirm with the user and retry\n with the operation's allow flag set."]
     pub const RESULT_MAX_VALUE: Type = 2147483647;
 }
 #[repr(C)]
@@ -192,7 +194,7 @@ pub struct OscCommandImpl {
 pub type OscCommand = *mut OscCommandImpl;
 pub mod FormatterFormat {
     #[doc = " Terminal content output format.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Plain text (no escape sequences)."]
     pub const PLAIN: Type = 0;
     #[doc = " VT sequences preserving colors, styles, URLs, etc."]
@@ -394,7 +396,7 @@ unsafe extern "C" {
 }
 pub mod OptimizeMode {
     #[doc = " Build optimization mode."]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     pub const DEBUG: Type = 0;
     pub const RELEASE_SAFE: Type = 1;
     pub const RELEASE_SMALL: Type = 2;
@@ -403,7 +405,7 @@ pub mod OptimizeMode {
 }
 pub mod BuildInfo {
     #[doc = " Build info data types that can be queried.\n\n Each variant documents the expected output pointer type."]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Invalid data type. Never results in any data extraction."]
     pub const INVALID: Type = 0;
     #[doc = " Whether SIMD-accelerated code paths are enabled.\n\n Output type: bool *"]
@@ -562,7 +564,7 @@ unsafe extern "C" {
 }
 pub mod ColorScheme {
     #[doc = " Color scheme reported in response to a CSI ? 996 n query.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     pub const LIGHT: Type = 0;
     pub const DARK: Type = 1;
     pub const MAX_VALUE: Type = 2147483647;
@@ -679,7 +681,7 @@ unsafe extern "C" {
 }
 pub mod FocusEvent {
     #[doc = " Focus event types for focus reporting mode (mode 1004)."]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Terminal window gained focus"]
     pub const GAINED: Type = 0;
     #[doc = " Terminal window lost focus"]
@@ -759,6 +761,38 @@ impl Default for Writer {
         }
     }
 }
+#[doc = " Read one MIME-typed representation of some content, streaming its\n bytes to a writer.\n\n The library calls this with the MIME type of the representation it\n needs. The callback writes all of that representation's data to\n len)` as is convenient (one call with everything or many small\n pieces both work), and returns true. Nothing written is retained\n beyond each write call, so the data may be borrowed from anywhere:\n a pasteboard item, a file being read, a stream.\n\n Returning false reports that the data could not be read. If the\n writer refuses a write (returns false), stop and return false\n without writing more.\n\n All pointer arguments, the mime, and the writer are borrowed and\n valid only for the duration of the callback. The callback is\n invoked synchronously on the calling thread. The API receiving the\n GhosttyMimeReader defines which MIME types are requested, how many\n times, and any consistency requirements across repeated reads.\n\n         be read or the writer refused a write"]
+pub type MimeReaderFn = ::std::option::Option<
+    unsafe extern "C" fn(
+        userdata: *mut ::std::os::raw::c_void,
+        mime: String,
+        writer: Writer,
+    ) -> bool,
+>;
+#[doc = " A MIME-typed content source callback and its opaque context.\n\n The struct is passed by value. @p read must be non-NULL."]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct MimeReader {
+    pub read: MimeReaderFn,
+    pub userdata: *mut ::std::os::raw::c_void,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of MimeReader"][::std::mem::size_of::<MimeReader>() - 16usize];
+    ["Alignment of MimeReader"][::std::mem::align_of::<MimeReader>() - 8usize];
+    ["Offset of field: MimeReader::read"][::std::mem::offset_of!(MimeReader, read) - 0usize];
+    ["Offset of field: MimeReader::userdata"]
+        [::std::mem::offset_of!(MimeReader, userdata) - 8usize];
+};
+impl Default for MimeReader {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
 #[doc = " Packed cell value.\n\n Represents a single terminal cell. Portable callers can query fields via\n ghostty_cell_get(). Boundary-sensitive callers can decode the packed value\n using the GhosttyCell descriptor returned by ghostty_type_json(). The\n manifest is authoritative for the linked build; hardcoding bit positions\n is unsupported.\n"]
 pub type Cell = u64;
 #[doc = " Opaque row value.\n\n Represents a single terminal row. The internal layout is opaque and\n must be queried via ghostty_row_get(). Obtain row values from\n terminal query APIs.\n"]
@@ -790,7 +824,7 @@ impl Default for CellsView {
 }
 pub mod CellContentTag {
     #[doc = " Cell content tag.\n\n Describes what kind of content a cell holds.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " A single codepoint (may be zero for empty)."]
     pub const CODEPOINT: Type = 0;
     #[doc = " A codepoint that is part of a multi-codepoint grapheme cluster."]
@@ -804,7 +838,7 @@ pub mod CellContentTag {
 }
 pub mod CellWide {
     #[doc = " Cell wide property.\n\n Describes the width behavior of a cell.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Not a wide character, cell width 1."]
     pub const NARROW: Type = 0;
     #[doc = " Wide character, cell width 2."]
@@ -818,7 +852,7 @@ pub mod CellWide {
 }
 pub mod CellSemanticContent {
     #[doc = " Semantic content type of a cell.\n\n Set by semantic prompt sequences (OSC 133) to distinguish between\n command output, user input, and shell prompt text.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Regular output content, such as command output."]
     pub const OUTPUT: Type = 0;
     #[doc = " Content that is part of user input."]
@@ -830,7 +864,7 @@ pub mod CellSemanticContent {
 }
 pub mod CellData {
     #[doc = " Cell data types.\n\n These values specify what type of data to extract from a cell\n using `ghostty_cell_get`.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Invalid data type. Never results in any data extraction."]
     pub const INVALID: Type = 0;
     #[doc = " The codepoint of the cell (0 if empty or bg-color-only).\n\n Output type: uint32_t *"]
@@ -860,7 +894,7 @@ pub mod CellData {
 }
 pub mod RowSemanticPrompt {
     #[doc = " Row semantic prompt state.\n\n Indicates whether any cells in a row are part of a shell prompt,\n as reported by OSC 133 sequences.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " No prompt cells in this row."]
     pub const NONE: Type = 0;
     #[doc = " Prompt cells exist and this is a primary prompt line."]
@@ -872,7 +906,7 @@ pub mod RowSemanticPrompt {
 }
 pub mod RowData {
     #[doc = " Row data types.\n\n These values specify what type of data to extract from a row\n using `ghostty_row_get`.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Invalid data type. Never results in any data extraction."]
     pub const INVALID: Type = 0;
     #[doc = " Whether this row is soft-wrapped.\n\n Output type: bool *"]
@@ -934,7 +968,7 @@ unsafe extern "C" {
 pub type StyleId = u16;
 pub mod StyleColorTag {
     #[doc = " Style color tags.\n\n These values identify the type of color in a style color.\n Use the tag to determine which field in the color value union to access.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     pub const NONE: Type = 0;
     pub const PALETTE: Type = 1;
     pub const RGB: Type = 2;
@@ -1122,7 +1156,7 @@ const _: () = {
 };
 pub mod PointTag {
     #[doc = " Point reference tag.\n\n Determines which coordinate system a point uses.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Active area where the cursor can move."]
     pub const ACTIVE: Type = 0;
     #[doc = " Visible viewport (changes when scrolled)."]
@@ -1394,7 +1428,7 @@ impl Default for TerminalSelectionFormatOptions {
 }
 pub mod SelectionOrder {
     #[doc = " Ordering of a selection's endpoints in terminal coordinates.\n\n Mirrored orders are only produced by rectangular selections whose start\n and end endpoints are on opposite diagonal corners that are not simple\n top-left-to-bottom-right or bottom-right-to-top-left orderings.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Start is before end in top-left to bottom-right order."]
     pub const FORWARD: Type = 0;
     #[doc = " End is before start in top-left to bottom-right order."]
@@ -1408,7 +1442,7 @@ pub mod SelectionOrder {
 }
 pub mod SelectionAdjust {
     #[doc = " Operation used to adjust a selection endpoint.\n\n Adjustment mutates the selection's logical end endpoint, not whichever\n endpoint is visually bottom/right. This preserves keyboard and drag\n behavior for both forward and reversed selections.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Move left to the previous non-empty cell, wrapping upward."]
     pub const LEFT: Type = 0;
     #[doc = " Move right to the next non-empty cell, wrapping downward."]
@@ -1434,7 +1468,7 @@ pub mod SelectionAdjust {
 }
 pub mod SelectionGestureBehavior {
     #[doc = " Selection behavior chosen for a gesture's click sequence.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Cell-granular drag selection."]
     pub const CELL: Type = 0;
     #[doc = " Word selection on press and word-granular drag selection."]
@@ -1509,7 +1543,7 @@ const _: () = {
 };
 pub mod SelectionGestureAutoscroll {
     #[doc = " Current autoscroll direction for an active selection drag gesture.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " No selection autoscroll is requested."]
     pub const NONE: Type = 0;
     #[doc = " Selection dragging should autoscroll the viewport upward."]
@@ -1521,7 +1555,7 @@ pub mod SelectionGestureAutoscroll {
 }
 pub mod SelectionGestureData {
     #[doc = " Data fields readable from a selection gesture with\n ghostty_selection_gesture_get().\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Current click count: uint8_t*. 0 means inactive."]
     pub const CLICK_COUNT: Type = 0;
     #[doc = " Whether the current/last left-click gesture has dragged: bool*."]
@@ -1537,7 +1571,7 @@ pub mod SelectionGestureData {
 }
 pub mod SelectionGestureEventType {
     #[doc = " Selection gesture event type.\n\n The event type is fixed when the event is created. Each event type documents\n which options are valid and which options are required by gesture operations.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Press event for ghostty_selection_gesture_event()."]
     pub const PRESS: Type = 0;
     #[doc = " Release event for ghostty_selection_gesture_event()."]
@@ -1553,7 +1587,7 @@ pub mod SelectionGestureEventType {
 }
 pub mod SelectionGestureEventOption {
     #[doc = " Options stored on a reusable selection gesture event.\n\n Passing NULL as the value to ghostty_selection_gesture_event_set() clears the\n corresponding option.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Grid reference under the pointer: GhosttyGridRef*.\n\n Required for PRESS and DRAG events. Optional for RELEASE events; when unset\n or cleared, release records that the pointer did not map to a valid cell."]
     pub const REF: Type = 0;
     #[doc = " Surface-space pointer position: GhosttySurfacePosition*.\n\n Valid for PRESS, DRAG, and AUTOSCROLL_TICK."]
@@ -1747,7 +1781,7 @@ unsafe extern "C" {
 pub type Mode = u16;
 pub mod ModeReportState {
     #[doc = " DECRPM report state values.\n\n These correspond to the Ps2 parameter in a DECRPM response\n sequence (CSI ? Ps1 ; Ps2 $ y)."]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Mode is not recognized"]
     pub const NOT_RECOGNIZED: Type = 0;
     #[doc = " Mode is set (enabled)"]
@@ -1773,7 +1807,7 @@ unsafe extern "C" {
 }
 pub mod SizeReportStyle {
     #[doc = " Size report style.\n\n Determines the output format for the terminal size report."]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " In-band size report (mode 2048): ESC [ 48 ; rows ; cols ; height ; width t"]
     pub const MODE_2048: Type = 0;
     #[doc = " XTWINOPS text area size in pixels: ESC [ 4 ; height ; width t"]
@@ -1823,7 +1857,7 @@ unsafe extern "C" {
 }
 pub mod KittyGraphicsData {
     #[doc = " Queryable data kinds for ghostty_kitty_graphics_get().\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Invalid / sentinel value."]
     pub const INVALID: Type = 0;
     #[doc = " Populate a pre-allocated placement iterator with placement data from\n the storage. Iterator data is only valid as long as the underlying\n terminal is not mutated.\n\n Output type: GhosttyKittyGraphicsPlacementIterator *"]
@@ -1835,7 +1869,7 @@ pub mod KittyGraphicsData {
 }
 pub mod KittyGraphicsPlacementData {
     #[doc = " Queryable data kinds for ghostty_kitty_graphics_placement_get().\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Invalid / sentinel value."]
     pub const INVALID: Type = 0;
     #[doc = " The image ID this placement belongs to.\n\n Output type: uint32_t *"]
@@ -1867,7 +1901,7 @@ pub mod KittyGraphicsPlacementData {
 }
 pub mod KittyPlacementLayer {
     #[doc = " Z-layer classification for kitty graphics placements.\n\n Based on the kitty protocol z-index conventions:\n - BELOW_BG:   z < INT32_MIN/2  (drawn below cell background)\n - BELOW_TEXT:  INT32_MIN/2 <= z < 0  (above background, below text)\n - ABOVE_TEXT:  z >= 0  (above text)\n - ALL:         no filtering (current behavior)\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     pub const ALL: Type = 0;
     pub const BELOW_BG: Type = 1;
     pub const BELOW_TEXT: Type = 2;
@@ -1876,7 +1910,7 @@ pub mod KittyPlacementLayer {
 }
 pub mod KittyGraphicsPlacementIteratorOption {
     #[doc = " Settable options for ghostty_kitty_graphics_placement_iterator_set().\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Set the z-layer filter for the iterator.\n\n Input type: GhosttyKittyPlacementLayer *"]
     pub const LAYER: Type = 0;
     #[doc = " Set the z-layer filter for the iterator.\n\n Input type: GhosttyKittyPlacementLayer *"]
@@ -1884,7 +1918,7 @@ pub mod KittyGraphicsPlacementIteratorOption {
 }
 pub mod KittyImageFormat {
     #[doc = " Pixel format of a Kitty graphics image.\n\n Note that stored images are always fully decoded:\n GHOSTTY_KITTY_IMAGE_FORMAT_PNG is never returned by\n ghostty_kitty_graphics_image_get() because PNG payloads are decoded\n to GHOSTTY_KITTY_IMAGE_FORMAT_RGBA before storage. The PNG value\n exists only for protocol-level completeness.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     pub const RGB: Type = 0;
     pub const RGBA: Type = 1;
     pub const PNG: Type = 2;
@@ -1894,14 +1928,14 @@ pub mod KittyImageFormat {
 }
 pub mod KittyImageCompression {
     #[doc = " Compression of a Kitty graphics image.\n\n Note that stored images are always decompressed:\n GHOSTTY_KITTY_IMAGE_COMPRESSION_ZLIB_DEFLATE payloads are inflated\n before storage, so ghostty_kitty_graphics_image_get() always reports\n GHOSTTY_KITTY_IMAGE_COMPRESSION_NONE. Consumers never need to\n inflate image data themselves.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     pub const NONE: Type = 0;
     pub const ZLIB_DEFLATE: Type = 1;
     pub const MAX_VALUE: Type = 2147483647;
 }
 pub mod KittyGraphicsImageData {
     #[doc = " Queryable data kinds for ghostty_kitty_graphics_image_get().\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Invalid / sentinel value."]
     pub const INVALID: Type = 0;
     #[doc = " The image ID.\n\n Output type: uint32_t *"]
@@ -2120,7 +2154,7 @@ unsafe extern "C" {
 }
 pub mod TerminalCompressionMode {
     #[doc = " Amount of compression work to perform before returning.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Perform one bounded compression step suitable for idle scheduling."]
     pub const INCREMENTAL: Type = 0;
     #[doc = " Synchronously inspect every currently eligible page."]
@@ -2130,7 +2164,7 @@ pub mod TerminalCompressionMode {
 }
 pub mod TerminalCompressionResult {
     #[doc = " Scheduling result from terminal compression.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Retained-mapping reclamation is unavailable on this target."]
     pub const UNSUPPORTED: Type = 0;
     #[doc = " More incremental compression work remains."]
@@ -2142,7 +2176,7 @@ pub mod TerminalCompressionResult {
 }
 pub mod TerminalScrollViewportTag {
     #[doc = " Scroll viewport behavior tag.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Scroll to the top of the scrollback."]
     pub const TOP: Type = 0;
     #[doc = " Scroll to the bottom (active area)."]
@@ -2215,7 +2249,7 @@ impl Default for TerminalScrollViewport {
 }
 pub mod TerminalScreen {
     #[doc = " Terminal screen identifier.\n\n Identifies which screen buffer is active in the terminal.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " The primary (normal) screen."]
     pub const PRIMARY: Type = 0;
     #[doc = " The alternate screen."]
@@ -2225,7 +2259,7 @@ pub mod TerminalScreen {
 }
 pub mod TerminalCursorStyle {
     #[doc = " Visual style of the terminal cursor.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Bar cursor (DECSCUSR 5, 6)."]
     pub const BAR: Type = 0;
     #[doc = " Block cursor (DECSCUSR 1, 2)."]
@@ -2265,7 +2299,7 @@ pub type TerminalBellFn = ::std::option::Option<
 >;
 pub mod TerminalUnknownSequenceTag {
     #[doc = " Unsupported terminal sequence tags.\n\n Only APC sequences are currently reported. Additional sequence types may\n be added without changing the callback shape.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Application Program Command (APC)."]
     pub const GHOSTTY_TERMINAL_UNKNOWN_SEQUENCE_APC: Type = 0;
     #[doc = " Application Program Command (APC)."]
@@ -2366,7 +2400,7 @@ pub type TerminalUnknownSequenceFn = ::std::option::Option<
 >;
 pub mod ClipboardLocation {
     #[doc = " Clipboard destination for a clipboard write.\n\n Protocol-specific destination identifiers are normalized to these values\n before the clipboard write callback is invoked.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " The standard system clipboard."]
     pub const STANDARD: Type = 0;
     #[doc = " The selection clipboard."]
@@ -2403,44 +2437,9 @@ impl Default for ClipboardContent {
         }
     }
 }
-#[doc = " A semantic, atomic clipboard write.\n\n This is a sized struct. The callback must only access fields present in the\n size reported by `size`. The request, contents array, MIME strings, and\n data strings are all borrowed and valid only for the callback duration.\n\n All entries in `contents` are representations of the same logical value\n and must be committed atomically. A `contents_len` of zero requests that\n the destination be cleared. This is distinct from a content entry whose data\n has zero length.\n"]
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct ClipboardWrite {
-    #[doc = " Size of this struct in bytes."]
-    pub size: usize,
-    #[doc = " Clipboard destination."]
-    pub location: ClipboardLocation::Type,
-    #[doc = " Borrowed array of MIME representations."]
-    pub contents: *const ClipboardContent,
-    #[doc = " Number of entries in contents; zero means clear the destination."]
-    pub contents_len: usize,
-}
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    ["Size of ClipboardWrite"][::std::mem::size_of::<ClipboardWrite>() - 32usize];
-    ["Alignment of ClipboardWrite"][::std::mem::align_of::<ClipboardWrite>() - 8usize];
-    ["Offset of field: ClipboardWrite::size"]
-        [::std::mem::offset_of!(ClipboardWrite, size) - 0usize];
-    ["Offset of field: ClipboardWrite::location"]
-        [::std::mem::offset_of!(ClipboardWrite, location) - 8usize];
-    ["Offset of field: ClipboardWrite::contents"]
-        [::std::mem::offset_of!(ClipboardWrite, contents) - 16usize];
-    ["Offset of field: ClipboardWrite::contents_len"]
-        [::std::mem::offset_of!(ClipboardWrite, contents_len) - 24usize];
-};
-impl Default for ClipboardWrite {
-    fn default() -> Self {
-        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
-        unsafe {
-            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
-            s.assume_init()
-        }
-    }
-}
 pub mod ClipboardWriteResult {
-    #[doc = " Result of a clipboard write callback.\n\n Protocols without write acknowledgements, including OSC 52 and iTerm2\n OSC 1337 Copy, ignore this result.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    #[doc = " Result of a clipboard write reply.\n"]
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " The clipboard write completed successfully."]
     pub const SUCCESS: Type = 0;
     #[doc = " The clipboard write was denied by policy or the user."]
@@ -2456,13 +2455,232 @@ pub mod ClipboardWriteResult {
     #[doc = " The clipboard write failed due to an I/O error."]
     pub const MAX_VALUE: Type = 2147483647;
 }
-#[doc = " Callback function type for clipboard_write.\n\n Called synchronously for a complete logical clipboard write. Protocol\n details such as OSC 52 selectors, base64 encoding, multipart chunks,\n aliases, and terminators are normalized before this callback is invoked.\n OSC 52 and iTerm2 OSC 1337 Copy writes therefore use the same callback\n shape. OSC 52 clipboard read requests (\"?\") are always ignored and never\n forwarded to this callback.\n\n"]
+#[doc = " The reply to a clipboard write request.\n\n This is a sized struct; set `size` to `sizeof(GhosttyClipboardWriteReply)`.\n The reply is borrowed only for the duration of the reply call and may be\n freed as soon as it returns.\n\n The result answers the program with the matching protocol status for\n protocols with a write acknowledgement (OSC 5522: DONE, EPERM, ENOSYS,\n EBUSY, EINVAL, EIO); protocols without one (OSC 52, OSC 1337 Copy)\n discard the reply. `remember` is ignored on any result other than\n GHOSTTY_CLIPBOARD_WRITE_RESULT_SUCCESS.\n"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct ClipboardWriteReply {
+    #[doc = " Size of this struct in bytes."]
+    pub size: usize,
+    #[doc = " Outcome of the write."]
+    pub result: ClipboardWriteResult::Type,
+    #[doc = " Record a session grant so future requests from the same program skip\n the permission prompt. Only honored on success when\n GhosttyClipboardWrite::can_remember is set."]
+    pub remember: bool,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of ClipboardWriteReply"][::std::mem::size_of::<ClipboardWriteReply>() - 16usize];
+    ["Alignment of ClipboardWriteReply"][::std::mem::align_of::<ClipboardWriteReply>() - 8usize];
+    ["Offset of field: ClipboardWriteReply::size"]
+        [::std::mem::offset_of!(ClipboardWriteReply, size) - 0usize];
+    ["Offset of field: ClipboardWriteReply::result"]
+        [::std::mem::offset_of!(ClipboardWriteReply, result) - 8usize];
+    ["Offset of field: ClipboardWriteReply::remember"]
+        [::std::mem::offset_of!(ClipboardWriteReply, remember) - 12usize];
+};
+impl Default for ClipboardWriteReply {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[doc = " Function type used to answer a clipboard write request. Obtained from\n GhosttyClipboardWrite::reply; see that struct for the contract.\n\n"]
+pub type ClipboardWriteReplyFn = ::std::option::Option<
+    unsafe extern "C" fn(write: *const ClipboardWrite, reply: *const ClipboardWriteReply),
+>;
+#[doc = " A synchronous request to write clipboard contents.\n\n This is a sized struct. The callback must only access fields present in the\n size reported by `size`. The request, contents array, MIME strings, and\n data strings are all borrowed and valid only for the callback duration.\n\n All entries in `contents` are representations of the same logical value\n and must be committed atomically. A `contents_len` of zero requests that\n the destination be cleared. This is distinct from a content entry whose data\n has zero length.\n\n The write is answered by calling `reply` with this request and a\n GhosttyClipboardWriteReply. This must happen within the clipboard write\n request callback. This struct is only valid during that time. Calling\n `reply` more than once is safely ignored. Returning without replying\n denies the write.\n"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct ClipboardWrite {
+    #[doc = " Size of this struct in bytes."]
+    pub size: usize,
+    #[doc = " Clipboard destination."]
+    pub location: ClipboardLocation::Type,
+    #[doc = " Borrowed array of MIME representations."]
+    pub contents: *const ClipboardContent,
+    #[doc = " Number of entries in contents; zero means clear the destination."]
+    pub contents_len: usize,
+    #[doc = " Name of the writing program for permission prompts, if the protocol\n carries one. Empty otherwise."]
+    pub name: String,
+    #[doc = " True if the terminal already holds a session grant for this request\n The embedder should skip any permission prompt and perform the write."]
+    pub granted: bool,
+    #[doc = " True if the program supplied a session password, so the embedder may\n offer to remember the user's decision through\n GhosttyClipboardWriteReply::remember. When false, remember is ignored."]
+    pub can_remember: bool,
+    #[doc = " Terminal-owned reply state. Do not access."]
+    pub ctx: *const ::std::os::raw::c_void,
+    #[doc = " Answer the write; see the struct documentation."]
+    pub reply: ClipboardWriteReplyFn,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of ClipboardWrite"][::std::mem::size_of::<ClipboardWrite>() - 72usize];
+    ["Alignment of ClipboardWrite"][::std::mem::align_of::<ClipboardWrite>() - 8usize];
+    ["Offset of field: ClipboardWrite::size"]
+        [::std::mem::offset_of!(ClipboardWrite, size) - 0usize];
+    ["Offset of field: ClipboardWrite::location"]
+        [::std::mem::offset_of!(ClipboardWrite, location) - 8usize];
+    ["Offset of field: ClipboardWrite::contents"]
+        [::std::mem::offset_of!(ClipboardWrite, contents) - 16usize];
+    ["Offset of field: ClipboardWrite::contents_len"]
+        [::std::mem::offset_of!(ClipboardWrite, contents_len) - 24usize];
+    ["Offset of field: ClipboardWrite::name"]
+        [::std::mem::offset_of!(ClipboardWrite, name) - 32usize];
+    ["Offset of field: ClipboardWrite::granted"]
+        [::std::mem::offset_of!(ClipboardWrite, granted) - 48usize];
+    ["Offset of field: ClipboardWrite::can_remember"]
+        [::std::mem::offset_of!(ClipboardWrite, can_remember) - 49usize];
+    ["Offset of field: ClipboardWrite::ctx"][::std::mem::offset_of!(ClipboardWrite, ctx) - 56usize];
+    ["Offset of field: ClipboardWrite::reply"]
+        [::std::mem::offset_of!(ClipboardWrite, reply) - 64usize];
+};
+impl Default for ClipboardWrite {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[doc = " Callback function type for clipboard_write.\n\n The embedder may ask for permission to write or perform the write\n async, but the callback itself is synchronous and the reply function\n must be called during the lifetime of this function. While this callback\n is active the VT stream is paused.\n\n Answer by calling `write->reply(write, &reply)` before returning. See\n GhosttyClipboardWrite for the full contract.\n\n The request may carry an optional program name requesting the write\n and the state of prior permission granted. If `can_remember` is set\n the response may set the `remember` flag and future requests from this\n same program will be \"granted\" and the embedder can skip permission\n requests.\n\n Clipboard read requests (OSC 52 \"?\" and OSC 5522 reads) are delivered\n to GhosttyTerminalClipboardReadFn instead.\n\n"]
 pub type TerminalClipboardWriteFn = ::std::option::Option<
     unsafe extern "C" fn(
         terminal: Terminal,
         userdata: *mut ::std::os::raw::c_void,
         write: *const ClipboardWrite,
-    ) -> ClipboardWriteResult::Type,
+    ),
+>;
+pub mod ClipboardReadResult {
+    #[doc = " Result of a clipboard read reply.\n"]
+    pub type Type = ::std::os::raw::c_uint;
+    #[doc = " The clipboard was read; the reply carries its contents."]
+    pub const SUCCESS: Type = 0;
+    #[doc = " The clipboard read was denied by policy or the user."]
+    pub const DENIED: Type = 1;
+    #[doc = " The embedder cannot read this clipboard."]
+    pub const UNSUPPORTED: Type = 2;
+    #[doc = " The clipboard is temporarily unavailable."]
+    pub const BUSY: Type = 3;
+    #[doc = " Reading the clipboard failed due to an I/O error."]
+    pub const IO_ERROR: Type = 4;
+    #[doc = " Reading the clipboard failed due to an I/O error."]
+    pub const MAX_VALUE: Type = 2147483647;
+}
+#[doc = " The reply to a clipboard read request.\n\n This is a sized struct; set `size` to `sizeof(GhosttyClipboardReadReply)`.\n All arrays and the strings they point to are borrowed only for the\n duration of the reply call and may be freed as soon as it returns.\n\n Any result other than GHOSTTY_CLIPBOARD_READ_RESULT_SUCCESS answers the\n program with an empty clipboard (OSC 52) or the matching protocol status\n (OSC 5522: EPERM, ENOSYS, EBUSY, EIO); the other fields are ignored in\n that case. On success, `contents` should carry one representation per\n requested MIME type (GhosttyClipboardRead::mimes) that the clipboard\n has; unrequested representations are ignored. Protocols that carry a\n single text value (OSC 52) use the first entry with a text MIME type\n such as \"text/plain\".\n"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct ClipboardReadReply {
+    #[doc = " Size of this struct in bytes."]
+    pub size: usize,
+    #[doc = " Outcome of the read."]
+    pub result: ClipboardReadResult::Type,
+    #[doc = " Borrowed array of MIME representations of the clipboard contents."]
+    pub contents: *const ClipboardContent,
+    #[doc = " Number of entries in contents."]
+    pub contents_len: usize,
+    #[doc = " Borrowed array of all MIME types available on the clipboard. Only\n used when GhosttyClipboardRead::list is set; may be NULL otherwise."]
+    pub available: *const String,
+    #[doc = " Number of entries in available."]
+    pub available_len: usize,
+    #[doc = " Record a session grant so future requests from the same program skip\n the permission prompt. Only honored on success when\n GhosttyClipboardRead::can_remember is set."]
+    pub remember: bool,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of ClipboardReadReply"][::std::mem::size_of::<ClipboardReadReply>() - 56usize];
+    ["Alignment of ClipboardReadReply"][::std::mem::align_of::<ClipboardReadReply>() - 8usize];
+    ["Offset of field: ClipboardReadReply::size"]
+        [::std::mem::offset_of!(ClipboardReadReply, size) - 0usize];
+    ["Offset of field: ClipboardReadReply::result"]
+        [::std::mem::offset_of!(ClipboardReadReply, result) - 8usize];
+    ["Offset of field: ClipboardReadReply::contents"]
+        [::std::mem::offset_of!(ClipboardReadReply, contents) - 16usize];
+    ["Offset of field: ClipboardReadReply::contents_len"]
+        [::std::mem::offset_of!(ClipboardReadReply, contents_len) - 24usize];
+    ["Offset of field: ClipboardReadReply::available"]
+        [::std::mem::offset_of!(ClipboardReadReply, available) - 32usize];
+    ["Offset of field: ClipboardReadReply::available_len"]
+        [::std::mem::offset_of!(ClipboardReadReply, available_len) - 40usize];
+    ["Offset of field: ClipboardReadReply::remember"]
+        [::std::mem::offset_of!(ClipboardReadReply, remember) - 48usize];
+};
+impl Default for ClipboardReadReply {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[doc = " Function type used to answer a clipboard read request. Obtained from\n GhosttyClipboardRead::reply; see that struct for the contract.\n\n"]
+pub type ClipboardReadReplyFn = ::std::option::Option<
+    unsafe extern "C" fn(read: *const ClipboardRead, reply: *const ClipboardReadReply),
+>;
+#[doc = " A synchronous request to read clipboard contents.\n\n This is a sized struct. The callback must only access fields present in the\n size reported by `size`. The request is borrowed and valid only for the\n callback duration.\n\n The read is answered by calling `reply` with this request and a\n GhosttyClipboardReadReply. This must happen before the callback returns;\n the request is invalid afterwards. Calling `reply` more than once is\n ignored. Returning without replying answers the program with an empty\n clipboard (OSC 52) or EPERM (OSC 5522).\n"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct ClipboardRead {
+    #[doc = " Size of this struct in bytes."]
+    pub size: usize,
+    #[doc = " Clipboard to read."]
+    pub location: ClipboardLocation::Type,
+    #[doc = " Borrowed array of the MIME types the program wants, in order of\n preference. Protocols that only carry text (OSC 52) request\n \"text/plain\". NULL when mimes_len is zero."]
+    pub mimes: *const String,
+    #[doc = " Number of entries in mimes."]
+    pub mimes_len: usize,
+    #[doc = " True if the program also wants the list of MIME types available on the\n clipboard, delivered through GhosttyClipboardReadReply::available."]
+    pub list: bool,
+    #[doc = " Name of the requesting program for permission prompts, if the protocol\n carries one. Empty otherwise."]
+    pub name: String,
+    #[doc = " True if the terminal already holds a session grant for this request\n (kitty clipboard protocol passwords). The embedder should skip any\n permission prompt and serve the read.\n\n Always false when mimes_len is zero: such a request is served\n without a prompt (see the callback docs), so the terminal never\n consults grants for it and a one-time password is preserved for\n the follow-up data read."]
+    pub granted: bool,
+    #[doc = " True if the program supplied a session password, so the embedder may\n offer to remember the user's decision through\n GhosttyClipboardReadReply::remember. When false, remember is ignored."]
+    pub can_remember: bool,
+    #[doc = " Terminal-owned reply state. Do not access."]
+    pub ctx: *const ::std::os::raw::c_void,
+    #[doc = " Answer the read; see the struct documentation."]
+    pub reply: ClipboardReadReplyFn,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of ClipboardRead"][::std::mem::size_of::<ClipboardRead>() - 80usize];
+    ["Alignment of ClipboardRead"][::std::mem::align_of::<ClipboardRead>() - 8usize];
+    ["Offset of field: ClipboardRead::size"][::std::mem::offset_of!(ClipboardRead, size) - 0usize];
+    ["Offset of field: ClipboardRead::location"]
+        [::std::mem::offset_of!(ClipboardRead, location) - 8usize];
+    ["Offset of field: ClipboardRead::mimes"]
+        [::std::mem::offset_of!(ClipboardRead, mimes) - 16usize];
+    ["Offset of field: ClipboardRead::mimes_len"]
+        [::std::mem::offset_of!(ClipboardRead, mimes_len) - 24usize];
+    ["Offset of field: ClipboardRead::list"][::std::mem::offset_of!(ClipboardRead, list) - 32usize];
+    ["Offset of field: ClipboardRead::name"][::std::mem::offset_of!(ClipboardRead, name) - 40usize];
+    ["Offset of field: ClipboardRead::granted"]
+        [::std::mem::offset_of!(ClipboardRead, granted) - 56usize];
+    ["Offset of field: ClipboardRead::can_remember"]
+        [::std::mem::offset_of!(ClipboardRead, can_remember) - 57usize];
+    ["Offset of field: ClipboardRead::ctx"][::std::mem::offset_of!(ClipboardRead, ctx) - 64usize];
+    ["Offset of field: ClipboardRead::reply"]
+        [::std::mem::offset_of!(ClipboardRead, reply) - 72usize];
+};
+impl Default for ClipboardRead {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[doc = " Callback function type for clipboard_read.\n\n Called synchronously when the running program requests clipboard contents\n via OSC 52 with a \"?\" payload or a Kitty clipboard (OSC 5522) read.\n Answering lets the program read the user's clipboard, so the embedder is\n expected to mediate consent. Because the read is synchronous, an embedder\n that needs to ask the user must block (for example by running a modal\n prompt) until it has an answer; the VT stream waits until the callback\n returns.\n\n Answer by calling `read->reply(read, &reply)` before returning. See\n GhosttyClipboardRead for the full contract.\n\n OSC 5522 requests carry the program's MIME list, name, and password grant\n state; a reply that sets `remember` records a session grant so later\n requests with the same password arrive with `granted` set. Kitty itself\n serves a request for only the targets listing (`list` with no `mimes`)\n without prompting, and embedders are expected to do the same; the\n terminal never consults grants for such requests (`granted` is false\n and one-time passwords are not consumed).\n\n Installing this callback also enables Kitty paste events (mode 5522):\n ghostty_terminal_paste() sends the program an event instead of the text,\n and the program's follow-up read arrives here with `granted` set since\n the user already pasted. See ghostty_terminal_paste().\n\n"]
+pub type TerminalClipboardReadFn = ::std::option::Option<
+    unsafe extern "C" fn(
+        terminal: Terminal,
+        userdata: *mut ::std::os::raw::c_void,
+        read: *const ClipboardRead,
+    ),
 >;
 #[doc = " A request to show a desktop notification.\n\n This is a sized struct. The callback must only access fields present in the\n size reported by `size`. Both strings are borrowed and valid only for the\n duration of the callback.\n"]
 #[repr(C)]
@@ -2507,7 +2725,7 @@ pub type TerminalDesktopNotificationFn = ::std::option::Option<
 >;
 pub mod TerminalProgressState {
     #[doc = " State of a terminal progress report.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Remove any visible progress indication."]
     pub const REMOVE: Type = 0;
     #[doc = " Show determinate progress."]
@@ -2630,7 +2848,7 @@ const _: () = {
 };
 pub mod TerminalOption {
     #[doc = " Terminal option identifiers.\n\n These values are used with ghostty_terminal_set() to configure\n terminal callbacks and associated state.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Opaque userdata pointer passed to all callbacks.\n\n Input type: void*"]
     pub const USERDATA: Type = 0;
     #[doc = " Callback invoked when the terminal needs to write data back\n to the pty (e.g. in response to a DECRQM query, device status\n report, or VT-driven mode 2048 enable). Set to NULL to ignore such\n sequences.\n\n Input type: GhosttyTerminalWritePtyFn"]
@@ -2683,7 +2901,7 @@ pub mod TerminalOption {
     pub const GLYPH_PROTOCOL: Type = 24;
     #[doc = " Callback invoked when the terminal pwd changes via escape\n sequences (OSC 7, OSC 9, or OSC 1337 CurrentDir). Set to NULL\n to ignore pwd change events.\n\n Input type: GhosttyTerminalPwdChangedFn"]
     pub const PWD_CHANGED: Type = 25;
-    #[doc = " Callback invoked when the running program performs a clipboard write.\n OSC 52 and iTerm2 OSC 1337 Copy writes are normalized to an atomic set\n of decoded MIME representations. Set to NULL to ignore clipboard writes.\n Clipboard read requests are always ignored; see\n GhosttyTerminalClipboardWriteFn.\n\n Input type: GhosttyTerminalClipboardWriteFn"]
+    #[doc = " Callback invoked when the running program performs a clipboard write.\n OSC 52, iTerm2 OSC 1337 Copy, and Kitty clipboard (OSC 5522) writes\n are normalized to an atomic set of decoded MIME representations. Set\n to NULL to ignore clipboard writes (Kitty clipboard writes are then\n refused with ENOSYS). Clipboard read requests are delivered to\n GHOSTTY_TERMINAL_OPT_CLIPBOARD_READ instead.\n\n Input type: GhosttyTerminalClipboardWriteFn"]
     pub const CLIPBOARD_WRITE: Type = 26;
     #[doc = " Set the maximum scrollback allocation in bytes.\n\n This is an estimate. Internally, libghostty only prunes bytes up\n to a \"page\"-granularity. A page is the minimum allocated unit of\n grid space within Ghostty. A page at the time of writing these docs\n is about 400KB, so the byte limit will be within this delta.\n\n This works alongside the line limit configuration. If both are set,\n the first-reached limit is used first. Both limits are dependent\n on external state (byte limit can be reached with less lines if\n more styles are used for example, line limit can be reached with\n a narrower terminal viewport). So, they are useful together.\n\n Lowering the limit immediately removes eligible complete historical\n pages. A value of zero disables scrollback and erases retained history.\n A NULL value pointer removes the byte limit.\n\n Input type: size_t*"]
     pub const SCROLLBACK_MAX_BYTES: Type = 27;
@@ -2707,12 +2925,16 @@ pub mod TerminalOption {
     pub const UNKNOWN_MAX_BYTES: Type = 36;
     #[doc = " Set the name of the terminfo entry this terminal runs as, reported\n in response to an XTGETTCAP query for \"TN\" (e.g. \"xterm-256color\").\n\n The string data is copied into the terminal. A NULL value pointer\n clears the name (equivalent to setting an empty string). A name\n longer than 128 bytes returns GHOSTTY_INVALID_VALUE.\n\n If this is unset then we don't report anything for an XTGETTCAP\n TN query, because we don't know what the embedding terminal around\n libghostty is advertising itself as.\n\n Input type: GhosttyString*"]
     pub const TERMINFO_NAME: Type = 37;
-    #[doc = " Set the name of the terminfo entry this terminal runs as, reported\n in response to an XTGETTCAP query for \"TN\" (e.g. \"xterm-256color\").\n\n The string data is copied into the terminal. A NULL value pointer\n clears the name (equivalent to setting an empty string). A name\n longer than 128 bytes returns GHOSTTY_INVALID_VALUE.\n\n If this is unset then we don't report anything for an XTGETTCAP\n TN query, because we don't know what the embedding terminal around\n libghostty is advertising itself as.\n\n Input type: GhosttyString*"]
+    #[doc = " Callback invoked when the running program requests clipboard contents\n via OSC 52 with a \"?\" payload or a Kitty clipboard (OSC 5522) read. The\n read is synchronous and must be answered before the callback returns.\n Set to NULL (the default) to ignore OSC 52 read requests and refuse\n OSC 5522 reads with EPERM.\n\n Input type: GhosttyTerminalClipboardReadFn"]
+    pub const CLIPBOARD_READ: Type = 38;
+    #[doc = " Set the maximum total decoded bytes a single Kitty clipboard protocol\n (OSC 5522) write transaction may accumulate. The limit is captured\n when a transaction begins; an in-flight transaction keeps the limit\n it started with.\n\n Data beyond the limit fails the whole transaction with EFBIG. The\n transaction is discarded, later write-related packets are ignored\n until a new write begins, and nothing reaches the clipboard write\n callback.\n\n Transactions are buffered in memory, so this limit bounds how much\n memory a single write can make the terminal allocate. Pass SIZE_MAX\n to remove the limit. A NULL value pointer reverts to the built-in\n default of 64MiB, the minimum required by the protocol.\n\n This limit doesn't apply to OSC 52 writes, which are bounded by the\n maximum length of an escape sequence instead.\n\n Input type: size_t*"]
+    pub const CLIPBOARD_WRITE_MAX_BYTES: Type = 39;
+    #[doc = " Set the maximum total decoded bytes a single Kitty clipboard protocol\n (OSC 5522) write transaction may accumulate. The limit is captured\n when a transaction begins; an in-flight transaction keeps the limit\n it started with.\n\n Data beyond the limit fails the whole transaction with EFBIG. The\n transaction is discarded, later write-related packets are ignored\n until a new write begins, and nothing reaches the clipboard write\n callback.\n\n Transactions are buffered in memory, so this limit bounds how much\n memory a single write can make the terminal allocate. Pass SIZE_MAX\n to remove the limit. A NULL value pointer reverts to the built-in\n default of 64MiB, the minimum required by the protocol.\n\n This limit doesn't apply to OSC 52 writes, which are bounded by the\n maximum length of an escape sequence instead.\n\n Input type: size_t*"]
     pub const MAX_VALUE: Type = 2147483647;
 }
 pub mod TerminalData {
     #[doc = " Terminal data types.\n\n These values specify what type of data to extract from a terminal\n using `ghostty_terminal_get`.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Invalid data type. Never results in any data extraction."]
     pub const INVALID: Type = 0;
     #[doc = " Terminal width in cells.\n\n Output type: uint16_t *"]
@@ -2793,7 +3015,9 @@ pub mod TerminalData {
     pub const VT_GROUND: Type = 38;
     #[doc = " Whether the cursor is currently at a semantic shell prompt or input area.\n\n This depends on semantic prompt markers such as OSC 133. Returns false\n when semantic prompt information is unavailable or the alternate screen\n is active.\n\n Output type: bool *"]
     pub const CURSOR_AT_PROMPT: Type = 39;
-    #[doc = " Whether the cursor is currently at a semantic shell prompt or input area.\n\n This depends on semantic prompt markers such as OSC 133. Returns false\n when semantic prompt information is unavailable or the alternate screen\n is active.\n\n Output type: bool *"]
+    #[doc = " The configured maximum decoded bytes per Kitty clipboard protocol\n (OSC 5522) write transaction. See\n GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE_MAX_BYTES.\n\n Output type: size_t *"]
+    pub const CLIPBOARD_WRITE_MAX_BYTES: Type = 40;
+    #[doc = " The configured maximum decoded bytes per Kitty clipboard protocol\n (OSC 5522) write transaction. See\n GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE_MAX_BYTES.\n\n Output type: size_t *"]
     pub const MAX_VALUE: Type = 2147483647;
 }
 unsafe extern "C" {
@@ -3091,7 +3315,7 @@ unsafe extern "C" {
 }
 pub mod RenderStateDirty {
     #[doc = " Dirty state of a render state after update.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Not dirty at all; rendering can be skipped."]
     pub const FALSE: Type = 0;
     #[doc = " Some rows changed; renderer can redraw incrementally."]
@@ -3103,7 +3327,7 @@ pub mod RenderStateDirty {
 }
 pub mod RenderStateCursorVisualStyle {
     #[doc = " Visual style of the cursor.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Bar cursor (DECSCUSR 5, 6)."]
     pub const BAR: Type = 0;
     #[doc = " Block cursor (DECSCUSR 1, 2)."]
@@ -3117,7 +3341,7 @@ pub mod RenderStateCursorVisualStyle {
 }
 pub mod RenderStateData {
     #[doc = " Queryable data kinds for ghostty_render_state_get().\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Invalid / sentinel value."]
     pub const INVALID: Type = 0;
     #[doc = " Viewport width in cells (uint16_t)."]
@@ -3163,7 +3387,7 @@ pub mod RenderStateData {
 }
 pub mod RenderStateOption {
     #[doc = " Settable options for ghostty_render_state_set().\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Set dirty state (GhosttyRenderStateDirty)."]
     pub const DIRTY: Type = 0;
     #[doc = " Set dirty state (GhosttyRenderStateDirty)."]
@@ -3171,7 +3395,7 @@ pub mod RenderStateOption {
 }
 pub mod RenderStateRowData {
     #[doc = " Queryable data kinds for ghostty_render_state_row_get().\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Invalid / sentinel value."]
     pub const INVALID: Type = 0;
     #[doc = " Whether the current row is dirty (bool)."]
@@ -3189,7 +3413,7 @@ pub mod RenderStateRowData {
 }
 pub mod RenderStateRowOption {
     #[doc = " Settable options for ghostty_render_state_row_set().\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Set dirty state for the current row (bool)."]
     pub const DIRTY: Type = 0;
     #[doc = " Set dirty state for the current row (bool)."]
@@ -3429,7 +3653,7 @@ unsafe extern "C" {
 }
 pub mod RenderStateRowCellsData {
     #[doc = " Queryable data kinds for ghostty_render_state_row_cells_get().\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Invalid / sentinel value."]
     pub const INVALID: Type = 0;
     #[doc = " The raw cell value (GhosttyCell)."]
@@ -3519,7 +3743,7 @@ unsafe extern "C" {
 }
 pub mod OscCommandType {
     #[doc = " OSC command types.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     pub const INVALID: Type = 0;
     pub const CHANGE_WINDOW_TITLE: Type = 1;
     pub const CHANGE_WINDOW_ICON: Type = 2;
@@ -3546,11 +3770,12 @@ pub mod OscCommandType {
     pub const KITTY_CLIPBOARD_PROTOCOL: Type = 23;
     pub const KITTY_DND_PROTOCOL: Type = 24;
     pub const CONTEXT_SIGNAL: Type = 25;
+    pub const KITTY_DESKTOP_NOTIFICATION: Type = 26;
     pub const TYPE_MAX_VALUE: Type = 2147483647;
 }
 pub mod OscCommandData {
     #[doc = " OSC command data types.\n\n These values specify what type of data to extract from an OSC command\n using `ghostty_osc_command_data`.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Invalid data type. Never results in any data extraction."]
     pub const INVALID: Type = 0;
     #[doc = " Window title string data.\n\n Valid for: GHOSTTY_OSC_COMMAND_CHANGE_WINDOW_TITLE\n\n Output type: const char ** (pointer to null-terminated string)\n\n Lifetime: Valid until the next call to any ghostty_osc_* function with\n the same parser instance. Memory is owned by the parser."]
@@ -3592,7 +3817,7 @@ unsafe extern "C" {
 }
 pub mod SgrAttributeTag {
     #[doc = " SGR attribute tags.\n\n These values identify the type of an SGR attribute in a tagged union.\n Use the tag to determine which field in the attribute value union to access.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     pub const UNSET: Type = 0;
     pub const UNKNOWN: Type = 1;
     pub const BOLD: Type = 2;
@@ -3628,7 +3853,7 @@ pub mod SgrAttributeTag {
 }
 pub mod SgrUnderline {
     #[doc = " Underline style types.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     pub const NONE: Type = 0;
     pub const SINGLE: Type = 1;
     pub const DOUBLE: Type = 2;
@@ -3823,7 +4048,7 @@ impl Default for SysImage {
 }
 pub mod SysLogLevel {
     #[doc = " Log severity levels for the log callback."]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     pub const ERROR: Type = 0;
     pub const WARNING: Type = 1;
     pub const INFO: Type = 2;
@@ -3851,16 +4076,22 @@ pub type SysDecodePngFn = ::std::option::Option<
         out: *mut SysImage,
     ) -> bool,
 >;
+#[doc = " Callback type for secure random bytes.\n\n Fills @p buf with @p len cryptographically secure random bytes. The\n library uses this for secrets, so it must be a real CSPRNG (getrandom,\n arc4random_buf, BCryptGenRandom, crypto.getRandomValues, ...); a\n predictable source is a security hole.\n"]
+pub type SysRandomSecureFn = ::std::option::Option<
+    unsafe extern "C" fn(userdata: *mut ::std::os::raw::c_void, buf: *mut u8, len: usize) -> bool,
+>;
 pub mod SysOption {
     #[doc = " System option identifiers for ghostty_sys_set()."]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Set the userdata pointer passed to all sys callbacks.\n\n Input type: void* (or NULL)"]
     pub const GHOSTTY_SYS_OPT_USERDATA: Type = 0;
     #[doc = " Set the PNG decode function.\n\n When set, the terminal can accept PNG images via the Kitty\n Graphics Protocol. When cleared (NULL value), PNG decoding is\n unsupported and PNG image data will be rejected.\n\n Input type: GhosttySysDecodePngFn (function pointer, or NULL)"]
     pub const GHOSTTY_SYS_OPT_DECODE_PNG: Type = 1;
     #[doc = " Set the log callback.\n\n When set, internal library log messages are delivered to this\n callback. When cleared (NULL value), log messages are silently\n discarded.\n\n Use ghostty_sys_log_stderr as a convenience callback that\n writes formatted messages to stderr.\n\n Which log levels are emitted depends on the build mode of the\n library and is not configurable at runtime. Debug builds emit\n all levels (debug and above). Release builds emit info and\n above; debug-level messages are compiled out entirely and will\n never reach the callback.\n\n Input type: GhosttySysLogFn (function pointer, or NULL)"]
     pub const GHOSTTY_SYS_OPT_LOG: Type = 2;
-    #[doc = " Set the log callback.\n\n When set, internal library log messages are delivered to this\n callback. When cleared (NULL value), log messages are silently\n discarded.\n\n Use ghostty_sys_log_stderr as a convenience callback that\n writes formatted messages to stderr.\n\n Which log levels are emitted depends on the build mode of the\n library and is not configurable at runtime. Debug builds emit\n all levels (debug and above). Release builds emit info and\n above; debug-level messages are compiled out entirely and will\n never reach the callback.\n\n Input type: GhosttySysLogFn (function pointer, or NULL)"]
+    #[doc = " Override the secure random source.\n\n By default the library draws secure random bytes from the\n platform (getrandom or arc4random_buf on POSIX, CNG on Windows).\n Targets without one, such as wasm32-freestanding, have no default\n and operations that need entropy fail with GHOSTTY_IO_ERROR until\n this is set. When set,\n it is used instead of the platform source on every target. When\n cleared (NULL value), the platform default is restored.\n\n Input type: GhosttySysRandomSecureFn (function pointer, or NULL)"]
+    pub const GHOSTTY_SYS_OPT_RANDOM_SECURE: Type = 3;
+    #[doc = " Override the secure random source.\n\n By default the library draws secure random bytes from the\n platform (getrandom or arc4random_buf on POSIX, CNG on Windows).\n Targets without one, such as wasm32-freestanding, have no default\n and operations that need entropy fail with GHOSTTY_IO_ERROR until\n this is set. When set,\n it is used instead of the platform source on every target. When\n cleared (NULL value), the platform default is restored.\n\n Input type: GhosttySysRandomSecureFn (function pointer, or NULL)"]
     pub const GHOSTTY_SYS_OPT_MAX_VALUE: Type = 2147483647;
 }
 unsafe extern "C" {
@@ -3890,7 +4121,7 @@ pub struct KeyEventImpl {
 pub type KeyEvent = *mut KeyEventImpl;
 pub mod KeyAction {
     #[doc = " Keyboard input event types.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Key was released"]
     pub const RELEASE: Type = 0;
     #[doc = " Key was pressed"]
@@ -3904,7 +4135,7 @@ pub mod KeyAction {
 pub type Mods = u16;
 pub mod Key {
     #[doc = " Physical key codes.\n\n The set of key codes that Ghostty is aware of. These represent physical keys\n on the keyboard and are layout-independent. For example, the \"a\" key on a US\n keyboard is the same as the \"ф\" key on a Russian keyboard, but both will\n report the same key_a value.\n\n Layout-dependent strings are provided separately as UTF-8 text and are produced\n by the platform. These values are based on the W3C UI Events KeyboardEvent code\n standard. See: https://www.w3.org/TR/uievents-code\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     pub const UNIDENTIFIED: Type = 0;
     pub const BACKQUOTE: Type = 1;
     pub const BACKSLASH: Type = 2;
@@ -4166,7 +4397,7 @@ pub type KeyEncoder = *mut KeyEncoderImpl;
 pub type KittyKeyFlags = u8;
 pub mod OptionAsAlt {
     #[doc = " macOS option key behavior.\n\n Determines whether the \"option\" key on macOS is treated as \"alt\" or not.\n See the Ghostty `macos-option-as-alt` configuration option for more details.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Option key is not treated as alt"]
     pub const FALSE: Type = 0;
     #[doc = " Option key is treated as alt"]
@@ -4180,7 +4411,7 @@ pub mod OptionAsAlt {
 }
 pub mod KeyEncoderOption {
     #[doc = " Key encoder option identifiers.\n\n These values are used with ghostty_key_encoder_setopt() to configure\n the behavior of the key encoder.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Terminal DEC mode 1: cursor key application mode (value: bool)"]
     pub const CURSOR_KEY_APPLICATION: Type = 0;
     #[doc = " Terminal DEC mode 66: keypad key application mode (value: bool)"]
@@ -4242,7 +4473,7 @@ pub struct MouseEventImpl {
 pub type MouseEvent = *mut MouseEventImpl;
 pub mod MouseAction {
     #[doc = " Mouse event action type.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Mouse button was pressed."]
     pub const PRESS: Type = 0;
     #[doc = " Mouse button was released."]
@@ -4254,7 +4485,7 @@ pub mod MouseAction {
 }
 pub mod MouseButton {
     #[doc = " Mouse button identity.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     pub const UNKNOWN: Type = 0;
     pub const LEFT: Type = 1;
     pub const RIGHT: Type = 2;
@@ -4342,7 +4573,7 @@ pub struct MouseEncoderImpl {
 pub type MouseEncoder = *mut MouseEncoderImpl;
 pub mod MouseTrackingMode {
     #[doc = " Mouse tracking mode.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Mouse reporting disabled."]
     pub const NONE: Type = 0;
     #[doc = " X10 mouse mode."]
@@ -4358,7 +4589,7 @@ pub mod MouseTrackingMode {
 }
 pub mod MouseFormat {
     #[doc = " Mouse output format.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     pub const X10: Type = 0;
     pub const UTF8: Type = 1;
     pub const SGR: Type = 2;
@@ -4414,7 +4645,7 @@ const _: () = {
 };
 pub mod MouseEncoderOption {
     #[doc = " Mouse encoder option identifiers.\n\n These values are used with ghostty_mouse_encoder_setopt() to configure\n the behavior of the mouse encoder.\n"]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Mouse tracking mode (value: GhosttyMouseTrackingMode)."]
     pub const EVENT: Type = 0;
     #[doc = " Mouse output format (value: GhosttyMouseFormat)."]
@@ -4465,12 +4696,70 @@ unsafe extern "C" {
         out_len: *mut usize,
     ) -> Result::Type;
 }
+pub mod PasteSource {
+    #[doc = " Why a paste happened."]
+    pub type Type = ::std::os::raw::c_uint;
+    #[doc = " The user pasted from a clipboard: keybind, menu, middle click."]
+    pub const CLIPBOARD: Type = 0;
+    #[doc = " Text inserted some other way: IME commit, drag and drop, scripted\n input. Always written as text, never as a paste event, matching\n kitty. This is not a way to opt out of paste events; an embedder\n that doesn't want them doesn't install a clipboard_read callback."]
+    pub const TEXT: Type = 1;
+    #[doc = " Text inserted some other way: IME commit, drag and drop, scripted\n input. Always written as text, never as a paste event, matching\n kitty. This is not a way to opt out of paste events; an embedder\n that doesn't want them doesn't install a clipboard_read callback."]
+    pub const MAX_VALUE: Type = 2147483647;
+}
+#[doc = " A paste of clipboard contents into the terminal.\n\n This is a sized struct; set `size` to `sizeof(GhosttyPaste)`. The\n MIME type array and the strings it points to are borrowed only for\n the duration of the ghostty_terminal_paste() call, as is everything\n the reader produces."]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct Paste {
+    #[doc = " Size of this struct in bytes."]
+    pub size: usize,
+    #[doc = " The clipboard the contents came from. Reported to the program on a\n paste event (the selection and primary locations are both reported\n as the primary selection, the protocol knows only two); no effect\n on a text paste."]
+    pub location: ClipboardLocation::Type,
+    #[doc = " Why this paste happened."]
+    pub source: PasteSource::Type,
+    #[doc = " Borrowed array of the MIME types of the representations available,\n in preferred order. A text paste reads and writes the first entry\n with a text MIME type such as \"text/plain\" and ignores the rest. A\n paste event lists every entry and reads none. May be NULL when\n mimes_len is zero, which is nothing to paste."]
+    pub mimes: *const String,
+    #[doc = " Number of entries in mimes."]
+    pub mimes_len: usize,
+    #[doc = " Produces the data of a representation on demand. Required when\n mimes_len is nonzero.\n\n Called at most once per ghostty_terminal_paste() call: for the\n text representation being pasted, never for anything else and\n never for a paste event. The MIME type requested is always an\n entry of `mimes`, passed through exactly as given there (the same\n pointer and length), so the callback may identify the\n representation by pointer or by content. A false return fails the\n paste with GHOSTTY_IO_ERROR."]
+    pub reader: MimeReader,
+    #[doc = " Write text that could inject commands. Call with false, confirm\n with the user on GHOSTTY_REJECTED, and call again with true."]
+    pub allow_unsafe: bool,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of Paste"][::std::mem::size_of::<Paste>() - 56usize];
+    ["Alignment of Paste"][::std::mem::align_of::<Paste>() - 8usize];
+    ["Offset of field: Paste::size"][::std::mem::offset_of!(Paste, size) - 0usize];
+    ["Offset of field: Paste::location"][::std::mem::offset_of!(Paste, location) - 8usize];
+    ["Offset of field: Paste::source"][::std::mem::offset_of!(Paste, source) - 12usize];
+    ["Offset of field: Paste::mimes"][::std::mem::offset_of!(Paste, mimes) - 16usize];
+    ["Offset of field: Paste::mimes_len"][::std::mem::offset_of!(Paste, mimes_len) - 24usize];
+    ["Offset of field: Paste::reader"][::std::mem::offset_of!(Paste, reader) - 32usize];
+    ["Offset of field: Paste::allow_unsafe"][::std::mem::offset_of!(Paste, allow_unsafe) - 48usize];
+};
+impl Default for Paste {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
 unsafe extern "C" {
-    #[doc = " Check if paste data is safe to paste into the terminal.\n\n Data is considered unsafe if it contains:\n - Newlines (`\\n`) which can inject commands\n - The bracketed paste end sequence (`\\x1b[201~`) which can be used\n   to exit bracketed paste mode and inject commands\n\n This check is conservative and considers data unsafe regardless of\n current terminal state.\n"]
+    #[doc = " Paste into the terminal according to its current state: a Kitty\n clipboard protocol paste event if mode 5522 is enabled and a\n clipboard_read callback is installed, otherwise the text framed per\n mode 2004. See the group documentation for the full behavior. Output\n streams through the write_pty callback in chunks. The viewport is not\n scrolled; that is up to the embedder, as for key input.\n\n A paste event records a session grant for its one-time password only\n once the event is written; a failed call never leaves a grant for an\n event that was never sent.\n\n             the pty (the encoded text or a paste event). False means\n             there was nothing to paste: no non-empty text\n             representation. May be NULL.\n         GHOSTTY_REJECTED if the text could inject commands and\n         GhosttyPaste::allow_unsafe is false (nothing was written);\n         GHOSTTY_INVALID_VALUE for a NULL terminal or paste, MIME\n         types without a reader, or when no write_pty callback is\n         installed; GHOSTTY_OUT_OF_MEMORY; GHOSTTY_IO_ERROR if the\n         reader failed or there is no secure entropy source to mint a\n         paste event password (wasm32-freestanding without\n         GHOSTTY_SYS_OPT_RANDOM_SECURE set). Errors write nothing."]
+    pub fn ghostty_terminal_paste(
+        terminal: Terminal,
+        paste: *const Paste,
+        out_written: *mut bool,
+    ) -> Result::Type;
+}
+unsafe extern "C" {
+    #[doc = " Check if paste data is safe to paste into the terminal.\n\n Data is considered unsafe if it contains:\n - Newlines (`\\n`) which can inject commands\n - The bracketed paste end sequence (`\\x1b[201~`) which can be used\n   to exit bracketed paste mode and inject commands\n\n This check is conservative and considers data unsafe regardless of\n current terminal state. ghostty_terminal_paste() applies the\n terminal-state-aware rule itself (newlines are safe inside a\n bracketed paste); use this to apply the stricter rule on top.\n"]
     pub fn ghostty_paste_is_safe(data: *const ::std::os::raw::c_char, len: usize) -> bool;
 }
 unsafe extern "C" {
-    #[doc = " Encode paste data for writing to the terminal pty.\n\n This function prepares paste data for terminal input by:\n - Stripping unsafe control bytes (NUL, ESC, DEL, etc.) by replacing\n   them with spaces\n - Wrapping the data in bracketed paste sequences if @p bracketed is true\n - Replacing newlines with carriage returns if @p bracketed is false\n\n The input @p data buffer is modified in place during encoding. The\n encoded result (potentially with bracketed paste prefix/suffix) is\n written to the output buffer.\n\n If the output buffer is too small, the function returns\n GHOSTTY_OUT_OF_SPACE and sets the required size in @p out_written.\n The caller can then retry with a sufficiently sized buffer.\n\n             GHOSTTY_OUT_OF_SPACE, the required buffer size.\n         is too small"]
+    #[doc = " Encode paste data for writing to the terminal pty.\n\n This function prepares paste data for terminal input by:\n - Stripping unsafe control bytes (NUL, ESC, DEL, etc.) by replacing\n   them with spaces\n - Wrapping the data in bracketed paste sequences if @p bracketed is true\n - Replacing newlines with carriage returns if @p bracketed is false\n\n The input @p data buffer is modified in place during encoding. The\n encoded result (potentially with bracketed paste prefix/suffix) is\n written to the output buffer.\n\n If the output buffer is too small, the function returns\n GHOSTTY_OUT_OF_SPACE and sets the required size in @p out_written.\n The caller can then retry with a sufficiently sized buffer.\n\n This is the encoder ghostty_terminal_paste() uses for a text paste;\n use it directly when there is no terminal to paste into.\n\n             GHOSTTY_OUT_OF_SPACE, the required buffer size.\n         is too small"]
     pub fn ghostty_paste_encode(
         data: *mut ::std::os::raw::c_char,
         data_len: usize,
@@ -4482,7 +4771,7 @@ unsafe extern "C" {
 }
 pub mod SnapshotDecoderOption {
     #[doc = " Configurable snapshot decoder options.\n\n Options may only be changed before decoding starts. Calling\n ghostty_snapshot_decoder_set() after ghostty_snapshot_decoder_ready() or\n ghostty_snapshot_decoder_decode() returns GHOSTTY_INVALID_VALUE."]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Largest non-ground continuation the decoder will accept.\n\n A value of zero accepts only snapshots whose VT parser is in the ground\n state. The decoder default matches the largest built-in APC protocol\n buffer limit, currently 65 MiB.\n\n This is primarily an input validation limit. When\n GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION is true, the same value\n also becomes the continuation tracking limit on the returned terminal.\n\n Input type: size_t *"]
     pub const GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES: Type = 0;
     #[doc = " Retain the decoded continuation on the returned terminal.\n\n When true, terminals returned by ghostty_snapshot_decoder_ready() and\n ghostty_snapshot_decoder_decode() use\n GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES as their continuation\n tracking limit. The existing ghostty_terminal_continuation_* APIs can then\n export the exact unfinished VT or UTF-8 input restored from the snapshot.\n\n This is false by default. A maximum continuation size of zero leaves\n tracking disabled. With a nonzero maximum, tracking remains enabled even\n when the decoded continuation is empty. Exporting an empty continuation\n does not disable it. Callers that do not need ongoing tracking must still\n set GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to zero after export and\n before writing post-snapshot input.\n\n Input type: bool *"]
@@ -4492,7 +4781,7 @@ pub mod SnapshotDecoderOption {
 }
 pub mod SnapshotDecoderData {
     #[doc = " Queryable snapshot decoder data.\n\n Each variant documents the output pointer type expected by\n ghostty_snapshot_decoder_get()."]
-    pub type Type = ::std::os::raw::c_int;
+    pub type Type = ::std::os::raw::c_uint;
     #[doc = " Invalid data type. Never results in data extraction."]
     pub const INVALID: Type = 0;
     #[doc = " Current maximum accepted continuation size.\n\n This value is available in every non-failed decoder state.\n\n Output type: size_t *"]
