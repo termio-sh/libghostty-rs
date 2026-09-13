@@ -166,6 +166,13 @@ pub struct RenderStateRowCellsImpl {
 pub type RenderStateRowCells = *mut RenderStateRowCellsImpl;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+pub struct SearchImpl {
+    _unused: [u8; 0],
+}
+#[doc = " Opaque handle to a terminal search.\n\n A search is bound to the terminal it was created with. It borrows the\n terminal, so it never frees it, and the search must be freed with\n ghostty_search_free(). If the terminal is freed first, the search\n detects this: calls that need the terminal fail cleanly and the\n search can still be freed.\n"]
+pub type Search = *mut SearchImpl;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct SgrParserImpl {
     _unused: [u8; 0],
 }
@@ -204,7 +211,7 @@ pub mod FormatterFormat {
     #[doc = " HTML with inline styles."]
     pub const MAX_VALUE: Type = 2147483647;
 }
-#[doc = " A borrowed byte string (pointer + length).\n\n The memory is not owned by this struct. The pointer is only valid\n for the lifetime documented by the API that produces or consumes it."]
+#[doc = " A borrowed byte string (pointer + length).\n\n The memory is not owned by this struct. The pointer is only valid\n for the lifetime documented by the API that produces or consumes it.\n Empty strings produced by the library have a non-NULL pointer to valid\n storage."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct String {
@@ -302,7 +309,7 @@ unsafe extern "C" {
     #[doc = " Return the versioned libghostty-vt C type manifest for the current target.\n\n The manifest defines all the public types available in the linked\n build. The types contain their layouts, enum values, union fields, and more.\n\n Language bindings, such as WebAssembly hosts, should obtain offsets,\n sizes, alignments, array shapes, enum constants, and tagged-union arms from\n this manifest rather than hardcoding them. Consumers should reject unknown\n schema versions and verify the descriptors they require at initialization.\n\n Packed type descriptors define fields using `lsb` and `width`. `lsb` is\n relative to bit zero of the containing numerical value; for nested packed\n layouts it is relative to the immediate containing field. Tagged packed\n unions select an inline arm layout using the named tag field. These layouts\n describe the current linked build and are not a cross-version stability\n promise.\n\n The formal format is defined by the\n <a href=\"types.schema.json\">libghostty-vt ABI manifest JSON Schema</a>.\n\n Example (abbreviated):\n {\n   \"schema\": 1,\n   \"abi\": {\n     \"target\": \"wasm32\", \"os\": \"freestanding\", \"environment\": \"none\",\n     \"pointer_size\": 4, \"usize_size\": 4, \"max_alignment\": 16,\n     \"endian\": \"little\"\n   },\n   \"types\": {\n     \"GhosttyRenderStateData\": {\n       \"kind\": \"enum\", \"size\": 4, \"align\": 4,\n       \"underlying\": \"i32\", \"prefix\": \"GHOSTTY_RENDER_STATE_DATA_\",\n       \"values\": { \"INVALID\": 0, \"DIRTY\": 3, \"MAX_VALUE\": 2147483647 }\n     },\n     \"GhosttyStyleColor\": {\n       \"kind\": \"struct\", \"size\": 16, \"align\": 8,\n       \"fields\": {\n         \"tag\": { \"offset\": 0, \"size\": 4,\n                  \"type\": \"GhosttyStyleColorTag\" },\n         \"value\": { \"offset\": 8, \"size\": 8,\n                    \"type\": \"GhosttyStyleColorValue\", \"tag\": \"tag\",\n                    \"arms\": { \"NONE\": null, \"PALETTE\": \"palette\",\n                              \"RGB\": \"rgb\" } }\n       }\n     }\n   }\n }\n\n The returned pointer is valid for the lifetime of the process.\n"]
     pub fn ghostty_type_json() -> *const ::std::os::raw::c_char;
 }
-#[doc = " Function table for custom memory allocator operations.\n\n This vtable defines the interface for a custom memory allocator. All\n function pointers must be valid and non-NULL.\n\n\n If you're not going to use a custom allocator, you can ignore all of\n this. All functions that take an allocator pointer allow NULL to use a\n default allocator.\n\n The interface is based on the Zig allocator interface. I'll say up front\n that it is easy to look at this interface and think \"wow, this is really\n overcomplicated\". The reason for this complexity is well thought out by\n the Zig folks, and it enables a diverse set of allocation strategies\n as shown by the Zig ecosystem. As a consolation, please note that many\n of the arguments are only needed for advanced use cases and can be\n safely ignored in simple implementations. For example, if you look at\n the Zig implementation of the libc allocator in `lib/std/heap.zig`\n (search for CAllocator), you'll see it is very simple.\n\n We chose to align with the Zig allocator interface because:\n\n   1. It is a proven interface that serves a wide variety of use cases\n      in the real world via the Zig ecosystem. It's shown to work.\n\n   2. Our core implementation itself is Zig, and this lets us very\n      cheaply and easily convert between C and Zig allocators.\n\n NOTE(mitchellh): In the future, we can have default implementations of\n resize/remap and allow those to be null."]
+#[doc = " Function table for custom memory allocator operations.\n\n This vtable defines the interface for a custom memory allocator. All\n function pointers must be valid and non-NULL.\n\n\n If you're not going to use a custom allocator, you can ignore all of\n this. All functions that take an allocator pointer allow NULL to use a\n default allocator. Native freestanding builds must provide an allocator\n for operations that allocate memory.\n\n The interface is based on the Zig allocator interface. I'll say up front\n that it is easy to look at this interface and think \"wow, this is really\n overcomplicated\". The reason for this complexity is well thought out by\n the Zig folks, and it enables a diverse set of allocation strategies\n as shown by the Zig ecosystem. As a consolation, please note that many\n of the arguments are only needed for advanced use cases and can be\n safely ignored in simple implementations. For example, if you look at\n the Zig implementation of the libc allocator in `lib/std/heap.zig`\n (search for CAllocator), you'll see it is very simple.\n\n We chose to align with the Zig allocator interface because:\n\n   1. It is a proven interface that serves a wide variety of use cases\n      in the real world via the Zig ecosystem. It's shown to work.\n\n   2. Our core implementation itself is Zig, and this lets us very\n      cheaply and easily convert between C and Zig allocators.\n\n NOTE(mitchellh): In the future, we can have default implementations of\n resize/remap and allow those to be null."]
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone)]
 pub struct AllocatorVtable {
@@ -361,7 +368,7 @@ const _: () = {
     ["Offset of field: AllocatorVtable::free"]
         [::std::mem::offset_of!(AllocatorVtable, free) - 24usize];
 };
-#[doc = " Custom memory allocator.\n\n For functions that take an allocator pointer, a NULL pointer indicates\n that the default allocator should be used. The default allocator will\n be libc malloc/free if we're linking to libc. If libc isn't linked,\n a custom allocator is used (currently Zig's SMP allocator).\n\n\n Usage example:\n GhosttyAllocator allocator = {\n     .vtable = &my_allocator_vtable,\n     .ctx = my_allocator_state\n };"]
+#[doc = " Custom memory allocator.\n\n For functions that take an allocator pointer, a NULL pointer indicates\n that the default allocator should be used. The default allocator will\n be libc malloc/free if we're linking to libc. If libc isn't linked,\n a custom allocator is used (currently Zig's SMP allocator). On native\n freestanding targets, the default allocator always fails instead.\n\n\n Usage example:\n GhosttyAllocator allocator = {\n     .vtable = &my_allocator_vtable,\n     .ctx = my_allocator_state\n };"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct Allocator {
@@ -387,7 +394,7 @@ impl Default for Allocator {
     }
 }
 unsafe extern "C" {
-    #[doc = " Allocate a buffer of `len` bytes.\n\n Uses the provided allocator, or the default allocator if NULL is passed.\n The returned buffer must be freed with ghostty_free() using the same\n allocator.\n\n"]
+    #[doc = " Allocate a buffer of `len` bytes.\n\n Uses the provided allocator, or the default allocator if NULL is passed.\n The returned buffer must be freed with ghostty_free() using the same\n allocator.\n\n         allocation failed\n"]
     pub fn ghostty_alloc(allocator: *const Allocator, len: usize) -> *mut u8;
 }
 unsafe extern "C" {
@@ -1264,6 +1271,37 @@ impl Default for Selection {
         }
     }
 }
+#[doc = " A caller-provided buffer of selections.\n\n This follows the same conventions as GhosttyBuffer: ptr may be NULL with\n cap 0 to query the required capacity. APIs that fill this type set len to\n the number of entries written on GHOSTTY_SUCCESS, or to the required entry\n capacity on GHOSTTY_OUT_OF_SPACE.\n"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct SelectionBuffer {
+    #[doc = " Destination buffer for selections. May be NULL when cap is 0 to query\n the required capacity."]
+    pub ptr: *mut Selection,
+    #[doc = " Capacity of ptr in entries."]
+    pub cap: usize,
+    #[doc = " Entries written on success, or required entry capacity on\n GHOSTTY_OUT_OF_SPACE."]
+    pub len: usize,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of SelectionBuffer"][::std::mem::size_of::<SelectionBuffer>() - 24usize];
+    ["Alignment of SelectionBuffer"][::std::mem::align_of::<SelectionBuffer>() - 8usize];
+    ["Offset of field: SelectionBuffer::ptr"]
+        [::std::mem::offset_of!(SelectionBuffer, ptr) - 0usize];
+    ["Offset of field: SelectionBuffer::cap"]
+        [::std::mem::offset_of!(SelectionBuffer, cap) - 8usize];
+    ["Offset of field: SelectionBuffer::len"]
+        [::std::mem::offset_of!(SelectionBuffer, len) - 16usize];
+};
+impl Default for SelectionBuffer {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
 #[doc = " Options for deriving a word selection from a terminal grid reference.\n\n This is a sized struct. Use GHOSTTY_INIT_SIZED() to initialize it.\n If boundary_codepoints is NULL and boundary_codepoints_len is 0, Ghostty's\n default word-boundary codepoints are used. If boundary_codepoints_len is\n non-zero, boundary_codepoints must not be NULL.\n"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -1725,7 +1763,7 @@ unsafe extern "C" {
     ) -> Result::Type;
 }
 unsafe extern "C" {
-    #[doc = " Format a terminal selection into an allocated buffer.\n\n This is a one-shot convenience API for formatting either the terminal's\n active selection or a caller-provided GhosttySelection without explicitly\n creating a GhosttyFormatter.\n\n The returned buffer is allocated using allocator, or the default allocator\n if NULL is passed. The caller owns the returned buffer and must free it with\n ghostty_free(), passing the same allocator and returned length.\n\n The returned bytes are not NUL-terminated. This supports plain text, VT, and\n HTML uniformly as byte output.\n\n If options.selection is NULL and the terminal has no active selection, the\n function returns GHOSTTY_NO_VALUE and leaves out_ptr as NULL and out_len as 0.\n\n"]
+    #[doc = " Format a terminal selection into an allocated buffer.\n\n This is a one-shot convenience API for formatting either the terminal's\n active selection or a caller-provided GhosttySelection without explicitly\n creating a GhosttyFormatter.\n\n The returned buffer is allocated using allocator, or the default allocator\n if NULL is passed. The caller owns the returned buffer and must free it with\n ghostty_free(), passing the same allocator and returned length.\n Empty output returns GHOSTTY_SUCCESS with *out_ptr set to NULL and\n *out_len set to zero. This result can be passed to ghostty_free().\n\n The returned bytes are not NUL-terminated. This supports plain text, VT, and\n HTML uniformly as byte output.\n\n If options.selection is NULL and the terminal has no active selection, the\n function returns GHOSTTY_NO_VALUE and leaves out_ptr as NULL and out_len as 0.\n\n"]
     pub fn ghostty_terminal_selection_format_alloc(
         terminal: Terminal,
         allocator: *const Allocator,
@@ -3082,7 +3120,7 @@ unsafe extern "C" {
     ) -> Result::Type;
 }
 unsafe extern "C" {
-    #[doc = " Return an allocated copy of the terminal's replay-safe VT continuation.\n\n The returned bytes are allocated with allocator, or the default allocator\n when allocator is NULL. The caller must release them with ghostty_free(),\n passing the same allocator and returned length. An empty continuation is a\n successful zero-length allocation.\n Continuation tracking must have been enabled by setting\n GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to a nonzero value before the\n input that produced the continuation was written.\n\n The caller must serialize this operation with all other access to the same\n terminal.\n\n         failure, or GHOSTTY_INVALID_VALUE if an argument is invalid,\n         tracking is disabled, or the current continuation is unavailable\n"]
+    #[doc = " Return an allocated copy of the terminal's replay-safe VT continuation.\n\n The returned bytes are allocated with allocator, or the default allocator\n when allocator is NULL. The caller must release them with ghostty_free(),\n passing the same allocator and returned length. An empty continuation is a\n successful result with *out_ptr set to NULL and *out_len set to zero,\n which can also be passed to ghostty_free().\n Continuation tracking must have been enabled by setting\n GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES to a nonzero value before the\n input that produced the continuation was written.\n\n The caller must serialize this operation with all other access to the same\n terminal.\n\n         failure, or GHOSTTY_INVALID_VALUE if an argument is invalid,\n         tracking is disabled, or the current continuation is unavailable\n"]
     pub fn ghostty_terminal_continuation_alloc(
         terminal: Terminal,
         allocator: *const Allocator,
@@ -3301,7 +3339,7 @@ unsafe extern "C" {
     ) -> Result::Type;
 }
 unsafe extern "C" {
-    #[doc = " Run the formatter and return an allocated buffer with the output.\n\n Each call formats the current terminal state. The buffer is allocated\n using the provided allocator (or the default allocator if NULL).\n The caller is responsible for freeing the returned buffer with\n ghostty_free(), passing the same allocator (or NULL for the default)\n that was used for the allocation.\n\n         failure\n"]
+    #[doc = " Run the formatter and return an allocated buffer with the output.\n\n Each call formats the current terminal state. The buffer is allocated\n using the provided allocator (or the default allocator if NULL).\n The caller is responsible for freeing the returned buffer with\n ghostty_free(), passing the same allocator (or NULL for the default)\n that was used for the allocation.\n Empty output returns GHOSTTY_SUCCESS with *out_ptr set to NULL and\n *out_len set to zero. This result can be passed to ghostty_free().\n\n         failure\n"]
     pub fn ghostty_formatter_format_alloc(
         formatter: Formatter,
         allocator: *const Allocator,
@@ -4766,6 +4804,115 @@ unsafe extern "C" {
         bracketed: bool,
         buf: *mut ::std::os::raw::c_char,
         buf_len: usize,
+        out_written: *mut usize,
+    ) -> Result::Type;
+}
+pub mod SearchStatus {
+    #[doc = " Progress state of a search.\n"]
+    pub type Type = ::std::os::raw::c_uint;
+    #[doc = " ghostty_search_tick() can make progress without terminal access."]
+    pub const RUNNING: Type = 0;
+    #[doc = " Blocked until ghostty_search_feed(). This is also the state right\n after a needle is set, since the search has not yet seen the\n terminal."]
+    pub const FEED_REQUIRED: Type = 1;
+    #[doc = " Caught up with the terminal state as of the last feed. This never\n means finished forever, since later terminal writes require\n another feed to be seen. A search with no needle set also reports\n complete, since there is nothing to look for."]
+    pub const COMPLETE: Type = 2;
+    #[doc = " Caught up with the terminal state as of the last feed. This never\n means finished forever, since later terminal writes require\n another feed to be seen. A search with no needle set also reports\n complete, since there is nothing to look for."]
+    pub const MAX_VALUE: Type = 2147483647;
+}
+pub mod SearchScroll {
+    #[doc = " Scroll policy applied when a match becomes selected via\n GHOSTTY_SEARCH_OPT_SELECT_NEXT or GHOSTTY_SEARCH_OPT_SELECT_PREV.\n"]
+    pub type Type = ::std::os::raw::c_uint;
+    #[doc = " Scroll the viewport so the match is visible, only if it is not\n already visible. This is the default."]
+    pub const IF_NEEDED: Type = 0;
+    #[doc = " Never scroll the viewport."]
+    pub const NONE: Type = 1;
+    #[doc = " Never scroll the viewport."]
+    pub const MAX_VALUE: Type = 2147483647;
+}
+pub mod SearchData {
+    #[doc = " Data fields readable with ghostty_search_get(). The output value\n type is documented per field.\n\n All reads reflect the terminal's active screen as of the last feed.\n When the running application switches to the alternate screen, the\n next feed switches counts, matches, and selection to that screen's\n results. Primary screen results, including completed scrollback\n searches, are retained and restored on the way back.\n"]
+    pub type Type = ::std::os::raw::c_uint;
+    #[doc = " Current search status: GhosttySearchStatus*."]
+    pub const STATUS: Type = 0;
+    #[doc = " The needle this search is looking for: GhosttyString*. The bytes\n are borrowed from the search and remain valid until the needle is\n changed or the search is freed. Returns GHOSTTY_NO_VALUE when no\n needle is set."]
+    pub const NEEDLE: Type = 1;
+    #[doc = " Total matches found so far on the active screen: size_t*. Zero\n until the first feed."]
+    pub const TOTAL_MATCHES: Type = 2;
+    #[doc = " Index of the selected match: size_t*. This indexes the newest to\n oldest ordering of GHOSTTY_SEARCH_DATA_MATCHES, where 0 is the\n newest match, so a \"k of n\" find bar renders index + 1 of\n GHOSTTY_SEARCH_DATA_TOTAL_MATCHES. Returns GHOSTTY_NO_VALUE when\n nothing is selected."]
+    pub const SELECTED_INDEX: Type = 3;
+    #[doc = " The selected match: GhosttySelection*. This is an untracked\n snapshot with standard GhosttySelection lifetime rules. Returns\n GHOSTTY_NO_VALUE when nothing is selected."]
+    pub const SELECTED_MATCH: Type = 4;
+    #[doc = " All matches on the active screen, ordered newest to oldest, from\n the bottom of the active area up through scrollback:\n GhosttySelectionBuffer*. Set ptr to NULL with cap 0 to query the\n required capacity. An undersized buffer returns\n GHOSTTY_OUT_OF_SPACE with the required capacity in len."]
+    pub const MATCHES: Type = 5;
+    #[doc = " Matches on the pages covering the viewport, for drawing highlight\n rectangles: GhosttySelectionBuffer*. The list is computed during\n feeds and cached, so it reflects the viewport as of the last\n feed.\n\n Matches are found a page at a time, so the list can include\n matches slightly outside the visible viewport when they share a\n page with it. Ghostty's own renderer behaves the same way.\n Converting each match to viewport coordinates with\n ghostty_terminal_point_from_grid_ref() clips this naturally: skip\n matches that fail the conversion or whose row is beyond the\n visible row count."]
+    pub const VIEWPORT_MATCHES: Type = 6;
+    #[doc = " Current scroll policy: GhosttySearchScroll*."]
+    pub const SELECT_SCROLL: Type = 7;
+    #[doc = " Current scroll policy: GhosttySearchScroll*."]
+    pub const MAX_VALUE: Type = 2147483647;
+}
+pub mod SearchOption {
+    #[doc = " Options writable with ghostty_search_set(). The value type, and\n what a NULL value means, is documented per option.\n"]
+    pub type Type = ::std::os::raw::c_uint;
+    #[doc = " Set the needle to search for: const GhosttyString*. The bytes are\n copied, so the caller's memory does not need to outlive the call.\n Matching is byte-exact except ASCII letters, which compare\n case-insensitively.\n\n Changing the needle restarts the search from scratch and drops\n all results. As an exception, setting a needle equal to the current\n one (compared the same way as matching) keeps existing results,\n so find bars can resubmit freely. A NULL or empty value clears\n the needle and returns the search to idle.\n\n Replacing or clearing a needle releases tracked state held\n within the terminal, so the caller must serialize this with all\n other access to the same terminal. Returns GHOSTTY_INVALID_VALUE\n after the terminal was freed."]
+    pub const GHOSTTY_SEARCH_OPT_NEEDLE: Type = 0;
+    #[doc = " Select the next match, moving toward older content: from the\n bottom of the screen upward into history, the direction a search\n from the prompt usually wants. Wraps around past the oldest\n match.\n\n The value must be NULL. It is reserved for future use.\n\n This catches up with the terminal first, so it is safe to call at\n any time relative to feeds. The viewport scrolls to the newly\n selected match according to GHOSTTY_SEARCH_OPT_SELECT_SCROLL.\n This reads the terminal, so the caller must serialize it with all\n other access to the same terminal. Returns GHOSTTY_NO_VALUE when\n there are no matches."]
+    pub const GHOSTTY_SEARCH_OPT_SELECT_NEXT: Type = 1;
+    #[doc = " Select the previous match, moving toward newer content, wrapping\n around past the newest match. Otherwise identical to\n GHOSTTY_SEARCH_OPT_SELECT_NEXT."]
+    pub const GHOSTTY_SEARCH_OPT_SELECT_PREV: Type = 2;
+    #[doc = " Set the scroll policy applied by the select options: const\n GhosttySearchScroll*. The policy persists until changed. A NULL\n value resets it to GHOSTTY_SEARCH_SCROLL_IF_NEEDED. This only\n modifies search-owned state and never reads the terminal."]
+    pub const GHOSTTY_SEARCH_OPT_SELECT_SCROLL: Type = 3;
+    #[doc = " Set the scroll policy applied by the select options: const\n GhosttySearchScroll*. The policy persists until changed. A NULL\n value resets it to GHOSTTY_SEARCH_SCROLL_IF_NEEDED. This only\n modifies search-owned state and never reads the terminal."]
+    pub const GHOSTTY_SEARCH_OPT_MAX_VALUE: Type = 2147483647;
+}
+unsafe extern "C" {
+    #[doc = " Create a search bound to a terminal.\n\n The search borrows the terminal and never frees it. The search and\n the terminal can be freed in either order; see ghostty_search_free().\n\n The search starts idle with no needle: it reports\n GHOSTTY_SEARCH_STATUS_COMPLETE and finds nothing. Set\n GHOSTTY_SEARCH_OPT_NEEDLE to start searching.\n\n Creation is cheap and does not read terminal contents, but it\n registers the search with the terminal so the two can be freed in\n any order. The caller must serialize this call with all other\n access to the same terminal.\n\n         out_search or terminal is invalid, or GHOSTTY_OUT_OF_MEMORY\n         if allocation fails\n"]
+    pub fn ghostty_search_new(
+        allocator: *const Allocator,
+        out_search: *mut Search,
+        terminal: Terminal,
+    ) -> Result::Type;
+}
+unsafe extern "C" {
+    #[doc = " Free a search.\n\n If the bound terminal is still alive, this releases tracked state\n the search holds within it, so the caller must serialize this call\n with all other access to the same terminal. If the terminal was\n already freed, the search has been detached and this releases only\n search-owned memory. Passing NULL is allowed and is a no-op.\n\n"]
+    pub fn ghostty_search_free(search: Search);
+}
+unsafe extern "C" {
+    #[doc = " Make a bounded amount of search progress.\n\n This only works on data the search has already copied and never\n reads the terminal, so it is safe to call while another thread\n modifies the terminal. Call it in a loop while the status is\n GHOSTTY_SEARCH_STATUS_RUNNING. When the status becomes\n GHOSTTY_SEARCH_STATUS_FEED_REQUIRED, call ghostty_search_feed() to\n unblock it.\n\n         search is NULL\n"]
+    pub fn ghostty_search_tick(search: Search, out_status: *mut SearchStatus::Type)
+        -> Result::Type;
+}
+unsafe extern "C" {
+    #[doc = " Read the terminal to update the search.\n\n Each feed catches the search up with the terminal: it reconciles\n the tracked screens against the live ones, re-scans the active\n area, refreshes the viewport match list, gives the scrollback\n searcher its next chunk of data, and prunes results that scrollback\n eviction invalidated. Feeding is also the only way the search\n learns about terminal changes, so keep feeding periodically while\n the search is in use, even after it reports complete.\n\n This reads the terminal, so the caller must serialize it with all\n other access to the same terminal. Each call does a bounded amount\n of work so that any caller-held terminal lock is held only briefly.\n\n         search is NULL or the terminal was freed\n"]
+    pub fn ghostty_search_feed(search: Search) -> Result::Type;
+}
+unsafe extern "C" {
+    #[doc = " Feed and tick until the search is caught up with the terminal.\n\n This is a blocking convenience for one-shot and single-threaded\n embedders. It always performs at least one feed, so it also picks\n up any terminal changes since the last feed, then loops until the\n status is GHOSTTY_SEARCH_STATUS_COMPLETE. Searching a large\n scrollback can take a while, so interactive embedders should drive\n ghostty_search_tick() and ghostty_search_feed() themselves.\n\n This reads the terminal for the entire call, so the caller must\n serialize it with all other access to the same terminal.\n\n         search is NULL or the terminal was freed\n"]
+    pub fn ghostty_search_run(search: Search) -> Result::Type;
+}
+unsafe extern "C" {
+    #[doc = " Write an option to a search.\n\n The value type, and what a NULL value means, depends on the option\n and is documented by GhosttySearchOption. The needle and select\n options touch the terminal, so the caller must serialize those\n calls with all other access to the same terminal.\n GHOSTTY_SEARCH_OPT_SELECT_SCROLL only modifies search-owned state.\n\n              of NULL is documented per option.\n         option found no matches, GHOSTTY_OUT_OF_MEMORY if\n         allocation fails, or GHOSTTY_INVALID_VALUE if search,\n         option, or value is invalid or the option needs a terminal\n         that was already freed\n"]
+    pub fn ghostty_search_set(
+        search: Search,
+        option: SearchOption::Type,
+        value: *const ::std::os::raw::c_void,
+    ) -> Result::Type;
+}
+unsafe extern "C" {
+    #[doc = " Read a data field from a search.\n\n The output value type depends on data and is documented by\n GhosttySearchData. This never reads the terminal, so it is safe to\n call while another thread modifies the terminal. Returned\n selections are untracked snapshots with standard GhosttySelection\n lifetime rules.\n\n         requested data has no value, GHOSTTY_OUT_OF_SPACE if a\n         provided GhosttySelectionBuffer is too small (required\n         capacity in its len), GHOSTTY_OUT_OF_MEMORY if collecting\n         viewport matches fails, or GHOSTTY_INVALID_VALUE if search,\n         data, or value is invalid\n"]
+    pub fn ghostty_search_get(
+        search: Search,
+        data: SearchData::Type,
+        value: *mut ::std::os::raw::c_void,
+    ) -> Result::Type;
+}
+unsafe extern "C" {
+    #[doc = " Read multiple data fields from a search in a single call.\n\n This is an optimization over calling ghostty_search_get() multiple\n times. Each entry in values must point to storage of the type\n documented by the corresponding GhosttySearchData key.\n\n If any individual read fails, the function returns that error and\n writes the index of the failing key to out_written when out_written\n is non-NULL. Earlier keys have already been written. On success,\n out_written receives count when non-NULL. A too-small\n GhosttySelectionBuffer stops the batch with GHOSTTY_OUT_OF_SPACE at\n that key's index with the required capacity in its len, so order\n buffer-valued keys after scalar keys.\n\n                    on error\n         result\n"]
+    pub fn ghostty_search_get_multi(
+        search: Search,
+        count: usize,
+        keys: *const SearchData::Type,
+        values: *mut *mut ::std::os::raw::c_void,
         out_written: *mut usize,
     ) -> Result::Type;
 }
