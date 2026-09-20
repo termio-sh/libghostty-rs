@@ -338,14 +338,19 @@ fn fetch_ghostty(out_dir: &Path) -> PathBuf {
     let src_dir = out_dir.join("ghostty-src");
     let stamp = src_dir.join(".ghostty-commit");
 
-    // The stamp carries the patch series alongside the commit: patches are
+    // The patch series gets its own stamp beside the commit's. Patches are
     // applied to the checkout in place and cannot be layered or reversed
     // individually, so a changed series has to re-clone rather than patch an
-    // already-patched tree.
-    let want = format!("{GHOSTTY_COMMIT} {}", patch_series_digest());
+    // already-patched tree — but `.ghostty-commit` stays exactly the pinned
+    // sha, because the bindings-drift CI reads it to find the build output
+    // belonging to the pin.
+    let patch_stamp = src_dir.join(".ghostty-patches");
+    let want_patches = patch_series_digest().to_string();
     if stamp.exists()
         && let Ok(existing) = std::fs::read_to_string(&stamp)
-        && existing.trim() == want
+        && existing.trim() == GHOSTTY_COMMIT
+        && let Ok(existing_patches) = std::fs::read_to_string(&patch_stamp)
+        && existing_patches.trim() == want_patches
     {
         return src_dir;
     }
@@ -378,18 +383,27 @@ fn fetch_ghostty(out_dir: &Path) -> PathBuf {
 
     // Only stamp once the whole series has applied, so a failed build leaves
     // a tree that re-clones next time instead of one that looks patched.
-    std::fs::write(&stamp, &want).unwrap_or_else(|e| panic!("failed to write stamp: {e}"));
+    std::fs::write(&stamp, GHOSTTY_COMMIT).unwrap_or_else(|e| panic!("failed to write stamp: {e}"));
+    std::fs::write(&patch_stamp, &want_patches)
+        .unwrap_or_else(|e| panic!("failed to write patch stamp: {e}"));
 
     src_dir
 }
 
 /// Patch files applied to the pinned checkout, in filename order.
 fn patch_files() -> Vec<PathBuf> {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../Patches/ghostty")
-        .canonicalize();
-    let Ok(dir) = dir else { return Vec::new() };
-    let Ok(entries) = std::fs::read_dir(&dir) else {
+    // Deliberately not `canonicalize`: on Windows it returns an extended-length
+    // `\\?\` path, which the bundled MSYS git rewrites to `//?/C:/...` and then
+    // cannot open. Walking up from the manifest dir keeps the path absolute and
+    // plain, which both platforms' git accept.
+    let Some(root) = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .map(|root| root.join("Patches").join("ghostty"))
+    else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(&root) else {
         return Vec::new();
     };
     let mut files: Vec<PathBuf> = entries
