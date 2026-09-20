@@ -85,6 +85,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=DEBUG");
     println!("cargo:rerun-if-env-changed=OPT_LEVEL");
     println!("cargo:rerun-if-changed=crates/libghostty-vt-sys/build.rs");
+    println!("cargo:rerun-if-changed=Patches/ghostty");
 
     // An explicit source override should stay authoritative even when the
     // pkg-config feature is enabled, so local Ghostty checkouts remain easy to
@@ -337,10 +338,19 @@ fn fetch_ghostty(out_dir: &Path) -> PathBuf {
     let src_dir = out_dir.join("ghostty-src");
     let stamp = src_dir.join(".ghostty-commit");
 
-    // Skip fetch if we already have the right commit.
+    // The patch series gets its own stamp beside the commit's. Patches are
+    // applied to the checkout in place and cannot be layered or reversed
+    // individually, so a changed series has to re-clone rather than patch an
+    // already-patched tree — but `.ghostty-commit` stays exactly the pinned
+    // sha, because the bindings-drift CI reads it to find the build output
+    // belonging to the pin.
+    let patch_stamp = src_dir.join(".ghostty-patches");
+    let want_patches = patch_series_digest().to_string();
     if stamp.exists()
         && let Ok(existing) = std::fs::read_to_string(&stamp)
         && existing.trim() == GHOSTTY_COMMIT
+        && let Ok(existing_patches) = std::fs::read_to_string(&patch_stamp)
+        && existing_patches.trim() == want_patches
     {
         return src_dir;
     }
@@ -353,8 +363,17 @@ fn fetch_ghostty(out_dir: &Path) -> PathBuf {
 
     eprintln!("Fetching ghostty {GHOSTTY_COMMIT} ...");
 
+    // `core.autocrlf=false` / `core.eol=lf` are not a style preference: on
+    // Windows the default checkout rewrites every line ending, and the patch
+    // series then fails to apply because its context lines are LF. Pinning the
+    // checkout to the bytes upstream committed keeps one source tree on every
+    // platform, which is what a pinned build wants anyway.
     let mut clone = Command::new("git");
     clone
+        .arg("-c")
+        .arg("core.autocrlf=false")
+        .arg("-c")
+        .arg("core.eol=lf")
         .arg("clone")
         .arg("--filter=blob:none")
         .arg("--no-checkout")
@@ -362,16 +381,105 @@ fn fetch_ghostty(out_dir: &Path) -> PathBuf {
         .arg(&src_dir);
     run(clone, "git clone ghostty");
 
+    // The clone was `--no-checkout`, so the working tree is materialized here
+    // and these have to be repeated: `-c` applies to one invocation.
     let mut checkout = Command::new("git");
     checkout
+        .arg("-c")
+        .arg("core.autocrlf=false")
+        .arg("-c")
+        .arg("core.eol=lf")
         .arg("checkout")
         .arg(GHOSTTY_COMMIT)
         .current_dir(&src_dir);
     run(checkout, "git checkout ghostty commit");
 
+    apply_patches(&src_dir);
+
+    // Only stamp once the whole series has applied, so a failed build leaves
+    // a tree that re-clones next time instead of one that looks patched.
     std::fs::write(&stamp, GHOSTTY_COMMIT).unwrap_or_else(|e| panic!("failed to write stamp: {e}"));
+    std::fs::write(&patch_stamp, &want_patches)
+        .unwrap_or_else(|e| panic!("failed to write patch stamp: {e}"));
 
     src_dir
+}
+
+/// Patch files applied to the pinned checkout, in filename order.
+fn patch_files() -> Vec<PathBuf> {
+    // Deliberately not `canonicalize`: on Windows it returns an extended-length
+    // `\\?\` path, which the bundled MSYS git rewrites to `//?/C:/...` and then
+    // cannot open. Walking up from the manifest dir keeps the path absolute and
+    // plain, which both platforms' git accept.
+    let Some(root) = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .map(|root| root.join("Patches").join("ghostty"))
+    else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        return Vec::new();
+    };
+    let mut files: Vec<PathBuf> = entries
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.extension().is_some_and(|ext| ext == "patch"))
+        .collect();
+    files.sort();
+    files
+}
+
+/// A digest of the patch series, for the fetch stamp. `DefaultHasher` is not
+/// stable across Rust releases, which costs at worst one extra clone after a
+/// toolchain bump — the failure this guards against (silently building a tree
+/// carrying a stale series) is the expensive one.
+fn patch_series_digest() -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for path in patch_files() {
+        let bytes = std::fs::read(&path)
+            .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+        path.file_name().hash(&mut hasher);
+        bytes.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+/// Apply the series to a freshly checked-out tree. A patch that does not apply
+/// is a hard error: upstream having landed or moved the change is the signal to
+/// rebase or delete it, never to build without it.
+fn apply_patches(src_dir: &Path) {
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR must be set"));
+    for path in patch_files() {
+        eprintln!("Applying {} ...", path.display());
+
+        // Apply a CR-stripped copy rather than the file as checked out. Windows
+        // checks out with `core.autocrlf` on by default, and a patch whose
+        // context lines gained CRs no longer matches the LF source tree it
+        // patches — `git apply` fails there and nowhere else. `.gitattributes`
+        // asks for the same thing declaratively; this is what guarantees it,
+        // because it does not depend on how the repository was obtained.
+        let bytes = std::fs::read(&path)
+            .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+        let normalized: Vec<u8> = bytes
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|&(index, byte)| byte != b'\r' || bytes.get(index + 1) != Some(&b'\n'))
+            .map(|(_, byte)| byte)
+            .collect();
+        let staged = out_dir.join(path.file_name().expect("patch path must name a file"));
+        std::fs::write(&staged, &normalized)
+            .unwrap_or_else(|e| panic!("failed to write {}: {e}", staged.display()));
+
+        let mut apply = Command::new("git");
+        apply
+            .arg("apply")
+            .arg("--whitespace=nowarn")
+            .arg(&staged)
+            .current_dir(src_dir);
+        run(apply, &format!("git apply {}", path.display()));
+    }
 }
 
 fn run(mut command: Command, context: &str) {
