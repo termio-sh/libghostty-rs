@@ -449,13 +449,34 @@ fn patch_series_digest() -> u64 {
 /// is a hard error: upstream having landed or moved the change is the signal to
 /// rebase or delete it, never to build without it.
 fn apply_patches(src_dir: &Path) {
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR must be set"));
     for path in patch_files() {
         eprintln!("Applying {} ...", path.display());
+
+        // Apply a CR-stripped copy rather than the file as checked out. Windows
+        // checks out with `core.autocrlf` on by default, and a patch whose
+        // context lines gained CRs no longer matches the LF source tree it
+        // patches — `git apply` fails there and nowhere else. `.gitattributes`
+        // asks for the same thing declaratively; this is what guarantees it,
+        // because it does not depend on how the repository was obtained.
+        let bytes = std::fs::read(&path)
+            .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+        let normalized: Vec<u8> = bytes
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|&(index, byte)| byte != b'\r' || bytes.get(index + 1) != Some(&b'\n'))
+            .map(|(_, byte)| byte)
+            .collect();
+        let staged = out_dir.join(path.file_name().expect("patch path must name a file"));
+        std::fs::write(&staged, &normalized)
+            .unwrap_or_else(|e| panic!("failed to write {}: {e}", staged.display()));
+
         let mut apply = Command::new("git");
         apply
             .arg("apply")
             .arg("--whitespace=nowarn")
-            .arg(&path)
+            .arg(&staged)
             .current_dir(src_dir);
         run(apply, &format!("git apply {}", path.display()));
     }

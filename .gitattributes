@@ -1,0 +1,5 @@
+# Patch files reach `git apply` byte for byte. Windows checks out with
+# `core.autocrlf` on by default, which rewrites their line endings, and the
+# context lines then stop matching the LF source tree they patch — the build
+# fails on Windows and nowhere else.
+Patches/** -text
