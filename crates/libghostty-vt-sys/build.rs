@@ -363,8 +363,17 @@ fn fetch_ghostty(out_dir: &Path) -> PathBuf {
 
     eprintln!("Fetching ghostty {GHOSTTY_COMMIT} ...");
 
+    // `core.autocrlf=false` / `core.eol=lf` are not a style preference: on
+    // Windows the default checkout rewrites every line ending, and the patch
+    // series then fails to apply because its context lines are LF. Pinning the
+    // checkout to the bytes upstream committed keeps one source tree on every
+    // platform, which is what a pinned build wants anyway.
     let mut clone = Command::new("git");
     clone
+        .arg("-c")
+        .arg("core.autocrlf=false")
+        .arg("-c")
+        .arg("core.eol=lf")
         .arg("clone")
         .arg("--filter=blob:none")
         .arg("--no-checkout")
@@ -372,8 +381,14 @@ fn fetch_ghostty(out_dir: &Path) -> PathBuf {
         .arg(&src_dir);
     run(clone, "git clone ghostty");
 
+    // The clone was `--no-checkout`, so the working tree is materialized here
+    // and these have to be repeated: `-c` applies to one invocation.
     let mut checkout = Command::new("git");
     checkout
+        .arg("-c")
+        .arg("core.autocrlf=false")
+        .arg("-c")
+        .arg("core.eol=lf")
         .arg("checkout")
         .arg(GHOSTTY_COMMIT)
         .current_dir(&src_dir);
