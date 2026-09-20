@@ -1,0 +1,47 @@
+diff --git a/src/terminal/formatter.zig b/src/terminal/formatter.zig
+index 4feedda50..c2ef14132 100644
+--- a/src/terminal/formatter.zig
++++ b/src/terminal/formatter.zig
+@@ -1343,19 +1343,32 @@ pub const PageFormatter = struct {
+                         if (!cell.isEmpty() or cell.hasStyling()) break :blank;
+                     }
+ 
+-                    // Cells with no text are blank
+-                    if (!cell.hasText()) {
+-                        blank_cells += 1;
+-                        continue;
++                    // Cells with no text are blank, and so are trailing
++                    // spaces. We know a space is trailing because if we
++                    // get a non-empty cell later we'll fill the blanks.
++                    if (cell.hasText() and
++                        !(cell.codepoint() == ' ' and self.opts.trim))
++                    {
++                        break :blank;
+                     }
+ 
+-                    // Trailing spaces are blank. We know it is trailing
+-                    // because if we get a non-empty cell later we'll
+-                    // fill the blanks.
+-                    if (cell.codepoint() == ' ' and self.opts.trim) {
+-                        blank_cells += 1;
+-                        continue;
++                    // Reset the style before accumulating, for the same
++                    // reason the blank-row path above does it: blanks are
++                    // materialized as spaces before the next cell's style
++                    // transition is emitted, so a non-default background
++                    // here bleeds into cells the screen holds unstyled.
++                    // Accumulating only under the default style is also
++                    // the invariant writeCellRun's blank check assumes
++                    // (`run_style_id == 0`), so the fast path and this one
++                    // agree on what a blank looks like.
++                    if (!style.default()) {
++                        try self.formatStyleClose(emit, writer);
++                        style = .{};
++                        style_id = 0;
+                     }
++
++                    blank_cells += 1;
++                    continue;
+                 }
+ 
+                 // This cell is not blank. If we have accumulated blank cells

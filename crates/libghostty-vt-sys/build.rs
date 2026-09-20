@@ -85,6 +85,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=DEBUG");
     println!("cargo:rerun-if-env-changed=OPT_LEVEL");
     println!("cargo:rerun-if-changed=crates/libghostty-vt-sys/build.rs");
+    println!("cargo:rerun-if-changed=Patches/ghostty");
 
     // An explicit source override should stay authoritative even when the
     // pkg-config feature is enabled, so local Ghostty checkouts remain easy to
@@ -337,10 +338,14 @@ fn fetch_ghostty(out_dir: &Path) -> PathBuf {
     let src_dir = out_dir.join("ghostty-src");
     let stamp = src_dir.join(".ghostty-commit");
 
-    // Skip fetch if we already have the right commit.
+    // The stamp carries the patch series alongside the commit: patches are
+    // applied to the checkout in place and cannot be layered or reversed
+    // individually, so a changed series has to re-clone rather than patch an
+    // already-patched tree.
+    let want = format!("{GHOSTTY_COMMIT} {}", patch_series_digest());
     if stamp.exists()
         && let Ok(existing) = std::fs::read_to_string(&stamp)
-        && existing.trim() == GHOSTTY_COMMIT
+        && existing.trim() == want
     {
         return src_dir;
     }
@@ -369,9 +374,62 @@ fn fetch_ghostty(out_dir: &Path) -> PathBuf {
         .current_dir(&src_dir);
     run(checkout, "git checkout ghostty commit");
 
-    std::fs::write(&stamp, GHOSTTY_COMMIT).unwrap_or_else(|e| panic!("failed to write stamp: {e}"));
+    apply_patches(&src_dir);
+
+    // Only stamp once the whole series has applied, so a failed build leaves
+    // a tree that re-clones next time instead of one that looks patched.
+    std::fs::write(&stamp, &want).unwrap_or_else(|e| panic!("failed to write stamp: {e}"));
 
     src_dir
+}
+
+/// Patch files applied to the pinned checkout, in filename order.
+fn patch_files() -> Vec<PathBuf> {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../Patches/ghostty")
+        .canonicalize();
+    let Ok(dir) = dir else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut files: Vec<PathBuf> = entries
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.extension().is_some_and(|ext| ext == "patch"))
+        .collect();
+    files.sort();
+    files
+}
+
+/// A digest of the patch series, for the fetch stamp. `DefaultHasher` is not
+/// stable across Rust releases, which costs at worst one extra clone after a
+/// toolchain bump — the failure this guards against (silently building a tree
+/// carrying a stale series) is the expensive one.
+fn patch_series_digest() -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for path in patch_files() {
+        let bytes = std::fs::read(&path)
+            .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+        path.file_name().hash(&mut hasher);
+        bytes.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+/// Apply the series to a freshly checked-out tree. A patch that does not apply
+/// is a hard error: upstream having landed or moved the change is the signal to
+/// rebase or delete it, never to build without it.
+fn apply_patches(src_dir: &Path) {
+    for path in patch_files() {
+        eprintln!("Applying {} ...", path.display());
+        let mut apply = Command::new("git");
+        apply
+            .arg("apply")
+            .arg("--whitespace=nowarn")
+            .arg(&path)
+            .current_dir(src_dir);
+        run(apply, &format!("git apply {}", path.display()));
+    }
 }
 
 fn run(mut command: Command, context: &str) {
