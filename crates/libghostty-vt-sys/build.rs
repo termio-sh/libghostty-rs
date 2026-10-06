@@ -4,7 +4,7 @@ use std::process::Command;
 
 /// Pinned ghostty commit. Update this to pull a newer version.
 const GHOSTTY_REPO: &str = "https://github.com/ghostty-org/ghostty.git";
-const GHOSTTY_COMMIT: &str = "7aab0a0392369613472bd5dcfd66bef58e78c3ec";
+const GHOSTTY_COMMIT: &str = "35a81a980bb9fce09a1ea762a68b55f8eb3477ed";
 
 #[derive(Clone, Copy)]
 enum LinkMode {
