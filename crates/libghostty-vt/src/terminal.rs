@@ -1405,6 +1405,162 @@ pub enum ClipboardWriteError {
     IoError = ffi::ClipboardWriteResult::IO_ERROR,
 }
 
+/// A program status report (OSC 7501).
+///
+/// The terminal keeps no records. The application keeps one record per
+/// [`id`](Self::id) and applies the specification's lifetime rules; see
+/// [`Terminal::on_program_status`].
+#[derive(Debug, Copy, Clone)]
+pub struct ProgramStatus<'t> {
+    ptr: *const ffi::TerminalProgramStatus,
+    _phan: PhantomData<&'t ()>,
+}
+
+impl<'t> ProgramStatus<'t> {
+    unsafe fn from_raw(raw: *const ffi::TerminalProgramStatus) -> Self {
+        Self {
+            ptr: raw,
+            _phan: PhantomData,
+        }
+    }
+
+    /// What the program is doing.
+    pub fn state(self) -> Result<ProgramStatusState> {
+        // SAFETY: We trust libghostty to give us a valid underlying ptr
+        unsafe { *self.ptr }
+            .state
+            .try_into()
+            .map_err(|_| Error::InvalidValue)
+    }
+
+    /// What a blocked program needs from the user. `None` for other states,
+    /// when the program didn't say, or for a kind this version doesn't know.
+    pub fn kind(self) -> Option<ProgramStatusKind> {
+        // SAFETY: We trust libghostty to give us a valid underlying ptr
+        unsafe { *self.ptr }.kind.try_into().ok()
+    }
+
+    /// How far along the work is, from 0 through 100, or `None` when omitted.
+    pub fn progress(self) -> Option<u8> {
+        // SAFETY: We trust libghostty to give us a valid underlying ptr
+        match unsafe { *self.ptr }.progress {
+            ..=-1 => None,
+            v => Some(v as u8),
+        }
+    }
+
+    /// Which record this report is about. Empty for the root record.
+    pub fn id(self) -> &'t str {
+        // SAFETY: We trust libghostty to give us a valid underlying ptr
+        // AND that the string is valid UTF-8.
+        unsafe { (*self.ptr).id.to_str() }
+    }
+
+    /// Machine-readable program name, or empty when omitted.
+    pub fn app(self) -> &'t str {
+        // SAFETY: As above.
+        unsafe { (*self.ptr).app.to_str() }
+    }
+
+    /// Decoded label, or empty when omitted. Untrusted text from the program.
+    pub fn title(self) -> &'t str {
+        // SAFETY: As above.
+        unsafe { (*self.ptr).title.to_str() }
+    }
+
+    /// Decoded message, or empty when omitted. Untrusted text from the program.
+    pub fn message(self) -> &'t str {
+        // SAFETY: As above.
+        unsafe { (*self.ptr).message.to_str() }
+    }
+}
+
+/// What a program says it is doing, in a program status report.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, int_enum::IntEnum)]
+#[repr(u32)]
+#[non_exhaustive]
+pub enum ProgramStatusState {
+    /// At rest, waiting for the user's next instruction.
+    Idle = ffi::ProgramStatusState::IDLE,
+    /// Running.
+    Working = ffi::ProgramStatusState::WORKING,
+    /// Finished; the result is ready and the user has not seen it yet.
+    Done = ffi::ProgramStatusState::DONE,
+    /// Cannot continue until the user does something.
+    Blocked = ffi::ProgramStatusState::BLOCKED,
+    /// Failed and stopped.
+    Error = ffi::ProgramStatusState::ERROR,
+    /// Not a state: removes the addressed record and every record beneath it.
+    Clear = ffi::ProgramStatusState::CLEAR,
+}
+
+/// What a blocked program needs from the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, int_enum::IntEnum)]
+#[repr(u32)]
+#[non_exhaustive]
+pub enum ProgramStatusKind {
+    /// Approval to do something.
+    Permission = ffi::ProgramStatusKind::PERMISSION,
+    /// An answer to a question.
+    Question = ffi::ProgramStatusKind::QUESTION,
+    /// A login, password, token, or other credential.
+    Auth = ffi::ProgramStatusKind::AUTH,
+}
+
+/// A shell integration event (OSC 133).
+#[derive(Debug, Copy, Clone)]
+pub struct SemanticPrompt<'t> {
+    ptr: *const ffi::TerminalSemanticPrompt,
+    _phan: PhantomData<&'t ()>,
+}
+
+impl<'t> SemanticPrompt<'t> {
+    unsafe fn from_raw(raw: *const ffi::TerminalSemanticPrompt) -> Self {
+        Self {
+            ptr: raw,
+            _phan: PhantomData,
+        }
+    }
+
+    /// Which step of the command this event reports. `None` for a kind this
+    /// version doesn't know, which callers should ignore.
+    pub fn kind(self) -> Option<SemanticPromptKind> {
+        // SAFETY: We trust libghostty to give us a valid underlying ptr
+        unsafe { *self.ptr }.kind.try_into().ok()
+    }
+
+    /// The command's exit code, for [`SemanticPromptKind::CommandEnd`] when
+    /// the shell reported one.
+    pub fn exit_code(self) -> Option<i32> {
+        // SAFETY: We trust libghostty to give us a valid underlying ptr
+        let event = unsafe { *self.ptr };
+        event.has_exit_code.then_some(event.exit_code)
+    }
+
+    /// The decoded command line, for [`SemanticPromptKind::OutputStart`].
+    /// Empty when the shell didn't send one.
+    pub fn command(self) -> &'t str {
+        // SAFETY: We trust libghostty to give us a valid underlying ptr
+        // AND that the string is valid UTF-8.
+        unsafe { (*self.ptr).command.to_str() }
+    }
+}
+
+/// The step of a command that a shell integration event reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, int_enum::IntEnum)]
+#[repr(u32)]
+#[non_exhaustive]
+pub enum SemanticPromptKind {
+    /// A new prompt starts (OSC 133;A).
+    PromptStart = ffi::SemanticPromptKind::GHOSTTY_SEMANTIC_PROMPT_PROMPT_START,
+    /// The user's input starts (OSC 133;B).
+    InputStart = ffi::SemanticPromptKind::GHOSTTY_SEMANTIC_PROMPT_INPUT_START,
+    /// The command's output starts (OSC 133;C).
+    OutputStart = ffi::SemanticPromptKind::GHOSTTY_SEMANTIC_PROMPT_OUTPUT_START,
+    /// The command ended (OSC 133;D).
+    CommandEnd = ffi::SemanticPromptKind::GHOSTTY_SEMANTIC_PROMPT_COMMAND_END,
+}
+
 //---------------------------------------
 // Callbacks
 //---------------------------------------
@@ -1731,6 +1887,36 @@ handlers! {
             Ok(_) => ffi::ClipboardWriteResult::SUCCESS,
             Err(e) => e.into()
         }
+    }
+
+    /// Call the given function when the running program sends a program
+    /// status report (OSC 7501).
+    ///
+    /// While this is set, the terminal also answers the support query
+    /// (`OSC 7501 ; ?`) through [`on_pty_write`](Self::on_pty_write), so set
+    /// that too or programs never see the reply. A full reset reports a
+    /// [`Clear`](ProgramStatusState::Clear) with an empty id.
+    pub fn on_program_status(
+        &mut self,
+        tag = PROGRAM_STATUS,
+        from = GhosttyTerminalProgramStatusFn(
+            report: *const ffi::TerminalProgramStatus
+        ),
+        to = <'t>ProgramStatusFn(ProgramStatus<'t>),
+    ) |term, func| {
+        func(&term, unsafe { ProgramStatus::from_raw(report) });
+    }
+
+    /// Call the given function on each shell integration event (OSC 133).
+    pub fn on_semantic_prompt(
+        &mut self,
+        tag = SEMANTIC_PROMPT,
+        from = GhosttyTerminalSemanticPromptFn(
+            event: *const ffi::TerminalSemanticPrompt
+        ),
+        to = <'t>SemanticPromptFn(SemanticPrompt<'t>),
+    ) |term, func| {
+        func(&term, unsafe { SemanticPrompt::from_raw(event) });
     }
 }
 
@@ -2084,6 +2270,51 @@ mod tests {
                 .expect("grid ref point conversion should not fail")
                 .expect("grid ref should be representable in active space"),
             original
+        );
+    }
+
+    #[test]
+    fn program_status_reports_answers_the_query_and_sees_prompts() {
+        let events = std::rc::Rc::new(RefCell::new(Vec::<String>::new()));
+        let replies = std::rc::Rc::new(RefCell::new(Vec::<u8>::new()));
+        let (reports, prompts, written) = (events.clone(), events.clone(), replies.clone());
+        let mut terminal = tiny_terminal();
+        terminal
+            .on_program_status(move |_term, report| {
+                reports.borrow_mut().push(format!(
+                    "{:?} {:?} {:?} id={} app={} message={}",
+                    report.state().expect("known state"),
+                    report.kind(),
+                    report.progress(),
+                    report.id(),
+                    report.app(),
+                    report.message(),
+                ));
+            })
+            .expect("program status callback should register")
+            .on_semantic_prompt(move |_term, event| {
+                prompts
+                    .borrow_mut()
+                    .push(format!("prompt {:?}", event.kind()));
+            })
+            .expect("semantic prompt callback should register")
+            .on_pty_write(move |_term, data| written.borrow_mut().extend_from_slice(data))
+            .expect("pty write callback should register");
+
+        terminal.vt_write(b"\x1b]7501;?\x1b\\");
+        terminal
+            .vt_write(b"\x1b]7501;state=blocked:kind=permission:app=terraform:msg=QXBwbHk/\x07");
+        terminal.vt_write(b"\x1b]7501;state=working:id=build:progress=40\x07");
+        terminal.vt_write(b"\x1b]133;A\x07");
+
+        assert_eq!(replies.borrow().as_slice(), b"\x1b]7501;?\x1b\\");
+        assert_eq!(
+            events.borrow().as_slice(),
+            [
+                "Blocked Some(Permission) None id= app=terraform message=Apply?",
+                "Working None Some(40) id=build app= message=",
+                "prompt Some(PromptStart)",
+            ]
         );
     }
 }
