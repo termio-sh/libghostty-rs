@@ -3,7 +3,7 @@
 use std::{marker::PhantomData, mem::MaybeUninit, ptr::NonNull};
 
 use crate::{
-    alloc::{Allocator, Object},
+    alloc::{Allocator, Bytes, Object},
     error::{Error, Result, from_optional_result_uninit, from_result, from_result_with_len},
     ffi::{self, TerminalData as Data, TerminalOption as Opt},
     key,
@@ -314,6 +314,98 @@ impl<'alloc: 'cb, 'cb> Terminal<'alloc, 'cb> {
         unsafe { ffi::ghostty_terminal_vt_write(self.inner.as_raw(), data.as_ptr(), data.len()) }
     }
 
+    /// Retain up to `max_bytes` of an unfinished escape sequence or UTF-8
+    /// codepoint between writes, so [`Terminal::encode_snapshot`] works when
+    /// the last write stopped mid-sequence. Zero disables tracking.
+    ///
+    /// Tracking only covers input written after it is enabled: enabling it
+    /// while the parser is already mid-sequence leaves that sequence
+    /// unavailable, and a snapshot taken then fails.
+    pub fn set_continuation_limit(&mut self, max_bytes: usize) -> Result<()> {
+        self.set(ffi::TerminalOption::CONTINUATION_MAX_BYTES, &max_bytes)
+    }
+
+    /// Encode the complete terminal state — both screens, scrollback, modes,
+    /// cursor, palette, Kitty keyboard flags, and any unfinished input — in
+    /// libghostty's snapshot format.
+    ///
+    /// Fails with [`Error::InvalidValue`] when the parser is mid-sequence and
+    /// continuation tracking was not enabled before that input
+    /// ([`Terminal::set_continuation_limit`]). The format carries no
+    /// compatibility promise across ghostty versions: decode it with the same
+    /// engine that encoded it.
+    pub fn encode_snapshot(&self) -> Result<Bytes<'static>> {
+        let mut bytes = std::ptr::null_mut();
+        let mut len = 0usize;
+        let result = unsafe {
+            ffi::ghostty_snapshot_encode_alloc(
+                self.inner.as_raw(),
+                std::ptr::null(),
+                std::ptr::from_mut(&mut bytes),
+                std::ptr::from_mut(&mut len),
+            )
+        };
+        from_result(result)?;
+        let ptr = NonNull::new(bytes).ok_or(Error::OutOfMemory)?;
+        // SAFETY: allocated with the default allocator, which outlives everything.
+        Ok(unsafe { Bytes::from_raw_parts(ptr, len, std::ptr::null()) })
+    }
+}
+
+impl Terminal<'static, 'static> {
+    /// Decode a snapshot from [`Terminal::encode_snapshot`] into a new
+    /// terminal, with no callbacks registered.
+    ///
+    /// `continuation_limit` is both the largest unfinished sequence the
+    /// snapshot may carry and the tracking limit on the returned terminal, so
+    /// bytes written after decoding finish that sequence exactly as they would
+    /// have on the original. Zero accepts only snapshots taken at ground.
+    pub fn decode_snapshot(snapshot: &[u8], continuation_limit: usize) -> Result<Self> {
+        let mut decoder: ffi::SnapshotDecoder = std::ptr::null_mut();
+        from_result(unsafe {
+            ffi::ghostty_snapshot_decoder_new_buf(
+                std::ptr::null(),
+                &raw mut decoder,
+                snapshot.as_ptr(),
+                snapshot.len(),
+            )
+        })?;
+        let decoder = SnapshotDecoder(decoder);
+        let retain = continuation_limit > 0;
+        from_result(unsafe {
+            ffi::ghostty_snapshot_decoder_set(
+                decoder.0,
+                ffi::SnapshotDecoderOption::GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES,
+                std::ptr::from_ref(&continuation_limit).cast(),
+            )
+        })?;
+        from_result(unsafe {
+            ffi::ghostty_snapshot_decoder_set(
+                decoder.0,
+                ffi::SnapshotDecoderOption::GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION,
+                std::ptr::from_ref(&retain).cast(),
+            )
+        })?;
+        let mut raw: ffi::Terminal = std::ptr::null_mut();
+        from_result(unsafe { ffi::ghostty_snapshot_decoder_decode(decoder.0, &raw mut raw) })?;
+        Ok(Self {
+            inner: Object::new(raw)?,
+            vtable: Box::new(VTable::default()),
+        })
+    }
+}
+
+/// Frees the decoder on every exit from `decode_snapshot`. The terminal it
+/// returned is the caller's and outlives it.
+struct SnapshotDecoder(ffi::SnapshotDecoder);
+
+impl Drop for SnapshotDecoder {
+    fn drop(&mut self) {
+        unsafe { ffi::ghostty_snapshot_decoder_free(self.0) }
+    }
+}
+
+impl<'alloc: 'cb, 'cb> Terminal<'alloc, 'cb> {
     /// Resize the terminal to the given dimensions.
     ///
     /// Changes the number of columns and rows in the terminal. The primary
@@ -2128,6 +2220,52 @@ mod tests {
         // Primary DA request (CSI c) should invoke on_device_attributes.
         terminal.vt_write(b"\x1b[c");
         assert_eq!(*callback_count.borrow(), 1);
+    }
+
+    fn screen_vt(terminal: &Terminal<'_, '_>) -> Vec<u8> {
+        let mut formatter = crate::fmt::Formatter::new(
+            terminal,
+            crate::fmt::FormatterOptions::new().with_format(crate::fmt::Format::Vt),
+        )
+        .expect("formatter should initialize");
+        formatter
+            .format_alloc(None)
+            .expect("format should succeed")
+            .to_vec()
+    }
+
+    #[test]
+    fn a_snapshot_taken_at_ground_decodes_to_the_same_screen() {
+        let mut original = tiny_terminal();
+        original.vt_write(b"\x1b[1;31mred\x1b[0m\r\n\x1b[3mok");
+        let snapshot = original.encode_snapshot().expect("encode at ground");
+        let decoded = Terminal::decode_snapshot(&snapshot, 0).expect("decode");
+        assert_eq!(screen_vt(&decoded), screen_vt(&original));
+    }
+
+    #[test]
+    fn a_snapshot_taken_mid_sequence_finishes_the_sequence_after_decoding() {
+        let stream: &[u8] = b"ab\x1b[1;3mbold italic\x1b[0m cd";
+        let split = 4; // inside the CSI: "ab" ESC "["
+        let mut reference = tiny_terminal();
+        reference.vt_write(stream);
+
+        let mut original = tiny_terminal();
+        original
+            .set_continuation_limit(4096)
+            .expect("enable tracking");
+        original.vt_write(&stream[..split]);
+        let snapshot = original.encode_snapshot().expect("encode mid-sequence");
+        let mut decoded = Terminal::decode_snapshot(&snapshot, 4096).expect("decode");
+        decoded.vt_write(&stream[split..]);
+        assert_eq!(screen_vt(&decoded), screen_vt(&reference));
+    }
+
+    #[test]
+    fn a_snapshot_mid_sequence_without_tracking_is_refused() {
+        let mut terminal = tiny_terminal();
+        terminal.vt_write(b"ab\x1b[");
+        assert!(terminal.encode_snapshot().is_err());
     }
 
     fn tiny_terminal() -> Terminal<'static, 'static> {
