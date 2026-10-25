@@ -30,8 +30,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  ZIG_VERSION: "0.16.0"
-  ZIG_SHA256: "b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489"
+  ZIG_VERSION: "0.17.0"
+  ZIG_SHA256: "b607e9b9234790a008116ae5bdb71c6243b84b9fb42a53a9e70fde41c06c536a"
 
 jobs:
   drift:
@@ -67,7 +67,7 @@ jobs:
           echo "LIBCLANG_PATH=$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib" >> "$GITHUB_ENV"
 
       - name: Install Zig ${{ env.ZIG_VERSION }}
-        # The pinned ghostty declares minimum_zig_version 0.16.0, and
+        # The pinned ghostty declares minimum_zig_version 0.17.0, and
         # `libghostty-vt-sys` invokes `zig` by name — it honours no ZIG override,
         # so the toolchain has to be on PATH.
         run: |
