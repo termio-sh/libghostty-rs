@@ -2307,7 +2307,12 @@ mod tests {
         terminal.vt_write(b"\x1b]7501;state=working:id=build:progress=40\x07");
         terminal.vt_write(b"\x1b]133;A\x07");
 
-        assert_eq!(replies.borrow().as_slice(), b"\x1b]7501;?\x1b\\");
+        // Revision 0.4 of the protocol lists the accepted states and kinds
+        // after the `?`; the specification itself only requires the `?`.
+        assert_eq!(
+            replies.borrow().as_slice(),
+            b"\x1b]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth\x1b\\"
+        );
         assert_eq!(
             events.borrow().as_slice(),
             [
